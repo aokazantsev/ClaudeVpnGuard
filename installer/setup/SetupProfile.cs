@@ -12,6 +12,7 @@ namespace ClaudeVpnGuard
     {
         private const string DefaultVpnAdapter = "Fortinet";
         private const string VpnAdapterKey = "vpnAdapter";
+        private const string ResetSettingsKey = "resetSettings";
 
         public const string Intro =
             "Claude (десктоп, Claude Code, расширения редакторов) сможет выходить в сеть только через VPN. "
@@ -54,6 +55,14 @@ namespace ClaudeVpnGuard
             {
                 new SetupOption
                 {
+                    Key = ResetSettingsKey,
+                    Text = "Сбросить настройки",
+                    Hint = "Закрепляемые адреса Claude, дополнительные программы под защитой и уведомления вернутся к стандартным. "
+                        + "Адаптер VPN берётся из поля выше. Журнал не трогается. Помогает, если сбой вызван настройками.",
+                    Checked = false
+                },
+                new SetupOption
+                {
                     Key = CrashReportConsent.OptionKey,
                     Text = "Отправлять автору отчёты о сбоях",
                     Hint = "В отчёт попадает журнал программы, а в нём — имя пользователя и компьютера, пути к файлам и сетевые адреса, "
@@ -76,7 +85,9 @@ namespace ClaudeVpnGuard
         {
             report(5, "Папка настроек…");
             PrepareDataDirectory();
-            AppSettings settings = AppSettings.Load();
+            bool reset = request.Has(ResetSettingsKey);
+            SetupLog.Append("reset settings: " + reset);
+            AppSettings settings = reset ? new AppSettings() : AppSettings.Load();
             settings.VpnAdapters = AppSettings.ParseList(request.Value(VpnAdapterKey));
             if (!settings.TrySave()) throw new InvalidOperationException("Не удалось записать настройки в " + AppSettings.FilePath + ".");
             CrashReportConsent.Set(request.Has(CrashReportConsent.OptionKey));
