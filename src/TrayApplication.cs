@@ -27,9 +27,15 @@ namespace ClaudeVpnGuard
 
         public TrayApplication()
         {
+            AppLog.Append("start " + AppIdentity.Version + ", user=" + Environment.UserDomainName + "\\" + Environment.UserName
+                + ", os=" + Environment.OSVersion.VersionString + ", 64bit=" + Environment.Is64BitProcess
+                + ", clr=" + Environment.Version + ", exe=" + Application.ExecutablePath);
             settings = AppSettings.Load();
+            AppLog.Append("settings: file=" + AppSettings.FileExists + ", vpn=" + string.Join("|", settings.VpnAdapters)
+                + ", probe=" + settings.ProbeHost + ":" + settings.ProbePort + ", extra=" + settings.ExtraExecutables.Count);
             invoker.CreateControl();
             engine = new GuardEngine(settings, Post, RefreshSoon);
+            AppLog.Append("engine created");
 
             trayIcon.ContextMenuStrip = new ContextMenuStrip();
             trayIcon.ContextMenuStrip.Opening += OnMenuOpening;
@@ -49,8 +55,9 @@ namespace ClaudeVpnGuard
             NetworkChange.NetworkAddressChanged += OnNetworkChanged;
             NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
             WatchClaudeFolders();
-            AppLog.Append("start " + AppIdentity.Version);
+            AppLog.Append("watchers: " + watchers.Count);
             Refresh();
+            AppLog.Append("first refresh done");
             if (!settings.HasVpnAdapters) ShowSettings();
         }
 

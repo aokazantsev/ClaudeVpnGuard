@@ -10,7 +10,20 @@ namespace ClaudeVpnGuard
 
         public static void CheckAsync(string host, int port, Action<bool> done)
         {
-            ThreadPool.QueueUserWorkItem(state => done(Check(host, port)));
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                bool ok;
+                try
+                {
+                    ok = Check(host, port);
+                }
+                catch (Exception error)
+                {
+                    AppLog.Append("probe failed: " + error);
+                    ok = false;
+                }
+                done(ok);
+            });
         }
 
         private static bool Check(string host, int port)

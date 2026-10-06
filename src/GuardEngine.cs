@@ -13,6 +13,7 @@ namespace ClaudeVpnGuard
     {
         private const int DnsTimeoutMs = 2000;
         private const int LeakTicksBeforeAlarm = 2;
+        private const int TracedEvaluations = 3;
         private static readonly TimeSpan FullSyncInterval = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan DnsRefreshInterval = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan DnsRetryInterval = TimeSpan.FromSeconds(30);
@@ -34,6 +35,7 @@ namespace ClaudeVpnGuard
         private DateTime vpnUpSinceUtc = DateTime.MinValue;
         private bool firstEvaluation = true;
         private int leakTicks;
+        private int evaluations;
 
         public GuardEngine(AppSettings settings, Action<Action> post, Action changed)
         {
@@ -56,6 +58,8 @@ namespace ClaudeVpnGuard
         {
             var report = new GuardReport();
             DateTime now = DateTime.UtcNow;
+            evaluations++;
+            Trace("evaluate #" + evaluations + ", force=" + forceFullSync);
             if (!IsElevated())
             {
                 report.Status = GuardStatus.Broken;
@@ -65,8 +69,15 @@ namespace ClaudeVpnGuard
             }
 
             AdapterSnapshot adapters = AdapterInventory.Read(settings);
+            foreach (NetworkAdapter adapter in adapters.Adapters)
+            {
+                Trace("adapter " + adapter.Name + " | " + adapter.Description + " | vpn=" + adapter.IsVpn + ", present=" + adapter.IsPresent
+                    + ", up=" + adapter.IsUp + ", addresses=" + adapter.Addresses.Count + ", dns=" + adapter.DnsServers.Count + ", index=" + adapter.Ipv4Index);
+            }
             SortedSet<string> executables = ClaudeExecutables.Find(settings);
+            Trace("executables: " + executables.Count + (executables.Count > 0 ? " — " + string.Join("; ", executables) : ""));
             Dictionary<int, string> running = ClaudeProcesses.Running(executables);
+            Trace("running claude processes: " + running.Count);
             foreach (string path in running.Values)
             {
                 if (executables.Add(path)) report.Events.Add("Найден запущенный Claude вне известных папок: " + path);
@@ -74,13 +85,19 @@ namespace ClaudeVpnGuard
             report.Executables.AddRange(executables);
 
             SyncFirewall(report, executables, adapters, forceFullSync, now);
+            Trace("firewall done, problems=" + report.Problems.Count);
             NetworkAdapter vpn = adapters.ActiveVpn;
+            Trace("active vpn: " + (vpn == null ? "none" : vpn.Name));
             TrackVpn(report, vpn, now);
             RefreshPins(vpn, now);
+            Trace("dns refresh: running=" + dnsRefreshRunning);
             WritePins(report);
+            Trace("hosts done");
             AuditConnections(report, running, adapters);
+            Trace("connections audited");
             StartProbe(vpn, now);
             Classify(report, adapters, vpn, now);
+            Trace("classified: " + report.Status + " — " + report.Headline);
             firstEvaluation = false;
             return report;
         }
@@ -139,9 +156,21 @@ namespace ClaudeVpnGuard
             var hosts = new List<string>(settings.PinnedHosts);
             var servers = new List<IPAddress>(vpn.DnsServers);
             int vpnIndex = vpn.Ipv4Index;
+            bool traced = evaluations <= TracedEvaluations;
             ThreadPool.QueueUserWorkItem(state =>
             {
-                Dictionary<string, string> resolved = ResolveThroughVpn(hosts, servers, vpnIndex);
+                Dictionary<string, string> resolved;
+                try
+                {
+                    if (traced) AppLog.Append("dns: asking " + string.Join(", ", servers) + " for " + hosts.Count + " names");
+                    resolved = ResolveThroughVpn(hosts, servers, vpnIndex);
+                    if (traced) AppLog.Append("dns: resolved " + resolved.Count + " of " + hosts.Count);
+                }
+                catch (Exception error)
+                {
+                    AppLog.Append("dns failed: " + error);
+                    resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                }
                 post(() =>
                 {
                     dnsRefreshRunning = false;
@@ -278,6 +307,11 @@ namespace ClaudeVpnGuard
             }
             report.Status = GuardStatus.Protected;
             report.Headline = "Claude работает только через VPN";
+        }
+
+        private void Trace(string line)
+        {
+            if (evaluations <= TracedEvaluations) AppLog.Append("  " + line);
         }
 
         private static Dictionary<string, string> SafeReadPins()
