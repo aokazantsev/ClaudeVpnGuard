@@ -8,10 +8,12 @@ namespace ClaudeVpnGuard
     {
         private static int shown;
 
+        public static bool Silent;
+
         public static void Write(string source, Exception error, bool terminating)
         {
             AppLog.Append("CRASH (" + source + (terminating ? ", terminating" : "") + "): " + (error == null ? "unknown error" : error.ToString()));
-            if (Interlocked.Exchange(ref shown, 1) != 0) return;
+            if (Silent || Interlocked.Exchange(ref shown, 1) != 0) return;
             try
             {
                 MessageBox.Show(

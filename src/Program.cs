@@ -9,9 +9,14 @@ namespace ClaudeVpnGuard
     internal static class Program
     {
         [STAThread]
-        private static void Main()
+        private static int Main(string[] args)
         {
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+            if (args.Length > 0 && args[0] == FirewallWorker.Argument)
+            {
+                CrashReport.Silent = true;
+                return FirewallWorker.Run(args);
+            }
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += OnThreadException;
             bool isFirstInstance;
@@ -20,12 +25,13 @@ namespace ClaudeVpnGuard
                 if (!isFirstInstance)
                 {
                     AppLog.Append("another instance is running, exit");
-                    return;
+                    return 0;
                 }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new TrayApplication());
             }
+            return 0;
         }
 
         private static void OnThreadException(object sender, ThreadExceptionEventArgs e)

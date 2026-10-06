@@ -13,15 +13,12 @@ namespace ClaudeVpnGuard
         private const int ProfilesAll = 0x7FFFFFFF;
         private const int ModifyStateGroupPolicyOverride = 1;
 
-        private static List<string> appliedInterfaces = new List<string>();
-        private static bool presentAdaptersOnly;
-
         public static string RuleName(string executable)
         {
             return AppIdentity.Name + ": " + executable;
         }
 
-        public static FirewallSyncResult Sync(ICollection<string> executables, AdapterSnapshot adapters)
+        public static FirewallSyncResult Sync(FirewallRequest request)
         {
             var result = new FirewallSyncResult();
             AppLog.Trace("fw: opening policy");
@@ -31,11 +28,10 @@ namespace ClaudeVpnGuard
             Dictionary<string, dynamic> existing = OwnRules(rules);
             AppLog.Trace("fw: own rules " + existing.Count);
 
-            List<string> presentInterfaces = adapters.BlockedInterfaceNames(true);
-            List<string> interfaces = presentAdaptersOnly ? presentInterfaces : adapters.BlockedInterfaceNames(false);
+            List<string> interfaces = request.Interfaces;
             var desiredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (string executable in executables)
+            foreach (string executable in request.Executables)
             {
                 string name = RuleName(executable);
                 desiredNames.Add(name);
@@ -47,26 +43,29 @@ namespace ClaudeVpnGuard
                 {
                     if (isNew)
                     {
+                        AppLog.Trace("fw: creating rule object");
                         rule = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FWRule", true));
                         rule.Name = name;
                     }
+                    AppLog.Trace("fw: description");
                     rule.Description = "Claude выходит в сеть только через VPN. Создано " + AppIdentity.Name + ", не править вручную.";
+                    AppLog.Trace("fw: application");
                     rule.ApplicationName = executable;
+                    AppLog.Trace("fw: protocol, direction, action");
                     rule.Protocol = ProtocolAny;
                     rule.Direction = DirectionOut;
                     rule.Action = ActionBlock;
+                    AppLog.Trace("fw: profiles");
                     rule.Profiles = ProfilesAll;
+                    AppLog.Trace("fw: grouping");
                     rule.Grouping = AppIdentity.FirewallGroup;
+                    AppLog.Trace("fw: interfaces " + string.Join(" | ", interfaces));
                     if (!TrySetInterfaces(rule, interfaces))
                     {
-                        if (presentAdaptersOnly || !TrySetInterfaces(rule, presentInterfaces))
-                        {
-                            result.Errors.Add("не удалось задать список адаптеров для " + executable);
-                            continue;
-                        }
-                        presentAdaptersOnly = true;
-                        interfaces = presentInterfaces;
+                        result.Errors.Add("Windows не принял список адаптеров для " + executable);
+                        continue;
                     }
+                    AppLog.Trace("fw: enabling");
                     rule.Enabled = true;
                     if (isNew)
                     {
@@ -92,6 +91,7 @@ namespace ClaudeVpnGuard
             foreach (string name in existing.Keys)
             {
                 if (desiredNames.Contains(name)) continue;
+                AppLog.Trace("fw: removing " + name);
                 try
                 {
                     rules.Remove(name);
@@ -102,17 +102,17 @@ namespace ClaudeVpnGuard
                     result.Errors.Add("не удалось убрать устаревшее правило «" + name + "»: " + error.Message);
                 }
             }
-            result.PresentAdaptersOnly = presentAdaptersOnly;
-            appliedInterfaces = interfaces;
+            result.AppliedInterfaces.AddRange(interfaces);
             AppLog.Trace("fw: sync done, added " + result.Added + ", repaired " + result.Repaired + ", removed " + result.Removed + ", errors " + result.Errors.Count);
             return result;
         }
 
-        public static List<string> Verify(ICollection<string> executables)
+        public static FirewallSyncResult Verify(FirewallRequest request)
         {
-            var problems = new List<string>();
+            var result = new FirewallSyncResult();
+            result.AppliedInterfaces.AddRange(request.AppliedInterfaces);
             dynamic rules = OpenPolicy().Rules;
-            foreach (string executable in executables)
+            foreach (string executable in request.Executables)
             {
                 dynamic rule;
                 try
@@ -121,49 +121,29 @@ namespace ClaudeVpnGuard
                 }
                 catch (COMException)
                 {
-                    problems.Add("нет правила для " + executable);
+                    result.Drift.Add("нет правила для " + executable);
                     continue;
                 }
                 catch (System.IO.FileNotFoundException)
                 {
-                    problems.Add("нет правила для " + executable);
+                    result.Drift.Add("нет правила для " + executable);
                     continue;
                 }
-                if (!Matches(rule, executable, appliedInterfaces)) problems.Add("правило для " + executable + " изменено");
+                if (!Matches(rule, executable, request.AppliedInterfaces)) result.Drift.Add("правило для " + executable + " изменено");
             }
-            return problems;
+            return result;
         }
 
-        public static List<string> PolicyProblems()
+        public static void AddPolicyProblems(FirewallSyncResult result)
         {
-            var problems = new List<string>();
             AppLog.Trace("fw: reading policy state");
             object policy = OpenPolicy();
             Type type = policy.GetType();
             object state = type.InvokeMember("LocalPolicyModifyState", BindingFlags.GetProperty, null, policy, null);
             if (state is int && (int)state == ModifyStateGroupPolicyOverride)
             {
-                problems.Add("групповая политика игнорирует локальные правила брандмауэра");
+                result.PolicyProblems.Add("групповая политика игнорирует локальные правила брандмауэра");
             }
-            return problems;
-        }
-
-        public static int RemoveAll()
-        {
-            dynamic rules = OpenPolicy().Rules;
-            int removed = 0;
-            foreach (string name in OwnRules(rules).Keys)
-            {
-                try
-                {
-                    rules.Remove(name);
-                    removed++;
-                }
-                catch (COMException)
-                {
-                }
-            }
-            return removed;
         }
 
         private static dynamic OpenPolicy()

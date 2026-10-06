@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Threading;
 
@@ -15,6 +14,7 @@ namespace ClaudeVpnGuard
         private const int LeakTicksBeforeAlarm = 2;
         private const int TracedEvaluations = 3;
         private static readonly TimeSpan FullSyncInterval = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan VerifyInterval = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan DnsRefreshInterval = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan DnsRetryInterval = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(30);
@@ -36,8 +36,13 @@ namespace ClaudeVpnGuard
         private bool firstEvaluation = true;
         private int leakTicks;
         private int evaluations;
-        private bool firewallCrashed;
-        private string firewallCrashStep;
+        private bool firewallRunning;
+        private bool firewallSynced;
+        private bool firewallDrift;
+        private DateTime lastVerifyUtc = DateTime.MinValue;
+        private List<string> appliedInterfaces = new List<string>();
+        private List<string> firewallProblems = new List<string>();
+        private readonly List<string> firewallEvents = new List<string>();
 
         public GuardEngine(AppSettings settings, Action<Action> post, Action changed)
         {
@@ -45,20 +50,12 @@ namespace ClaudeVpnGuard
             this.post = post;
             this.changed = changed;
             pins = SafeReadPins();
-            firewallCrashed = FirewallCrashMarker.Exists();
-            if (firewallCrashed)
-            {
-                firewallCrashStep = FirewallCrashMarker.Read();
-                AppLog.Append("previous run stopped inside firewall step: " + firewallCrashStep);
-            }
         }
 
         public void RetryFirewall()
         {
-            if (!firewallCrashed) return;
-            AppLog.Append("firewall retry requested");
-            firewallCrashed = false;
-            FirewallCrashMarker.Clear();
+            lastSignature = null;
+            lastFullSyncUtc = DateTime.MinValue;
         }
 
         public void Reconfigure(AppSettings newSettings)
@@ -121,55 +118,72 @@ namespace ClaudeVpnGuard
 
         private void SyncFirewall(GuardReport report, SortedSet<string> executables, AdapterSnapshot adapters, bool forceFullSync, DateTime now)
         {
-            string signature = string.Join("|", executables) + "#" + string.Join("|", adapters.BlockedInterfaceNames(false));
-            if (firewallCrashed)
-            {
-                lastSignature = null;
-                report.Problems.Add("Брандмауэр Windows уронил программу — защита не работает. Повторить: «Проверить сейчас»");
-                report.Details.Add("Сбой при прошлом запуске: " + firewallCrashStep);
-                return;
-            }
+            string signature = string.Join("|", executables) + "#" + string.Join("|", adapters.BlockedInterfaceNames());
             string serviceProblem = FirewallHealth.ServiceProblem();
             if (serviceProblem != null)
             {
                 lastSignature = null;
+                firewallSynced = false;
                 report.Problems.Add("Защита не работает: " + serviceProblem);
                 return;
             }
-            List<string> disabledProfiles = FirewallHealth.DisabledProfiles();
-            FirewallCrashMarker.Set("синхронизация правил брандмауэра");
-            try
+            foreach (string profile in FirewallHealth.DisabledProfiles()) report.Problems.Add("Защита не работает: " + profile);
+            report.Problems.AddRange(firewallProblems);
+            report.Events.AddRange(firewallEvents);
+            firewallEvents.Clear();
+            if (signature != lastSignature) firewallSynced = false;
+            if (firewallRunning) return;
+
+            bool inputsChanged = signature != lastSignature;
+            bool syncDue = forceFullSync || inputsChanged || firewallDrift || now - lastFullSyncUtc > FullSyncInterval;
+            bool verifyDue = firewallSynced && now - lastVerifyUtc > VerifyInterval;
+            if (!syncDue && !verifyDue) return;
+
+            var request = new FirewallRequest { VerifyOnly = !syncDue, Trace = AppLog.TraceEnabled };
+            request.Executables.AddRange(executables);
+            request.Interfaces.AddRange(adapters.BlockedInterfaceNames());
+            request.AppliedInterfaces.AddRange(appliedInterfaces);
+            bool announceAdded = !firstEvaluation;
+            bool announceRepaired = !inputsChanged;
+            firewallRunning = true;
+            if (syncDue) lastFullSyncUtc = now;
+            lastVerifyUtc = now;
+            Trace("fw: worker started, " + (request.VerifyOnly ? "verify" : "sync"));
+            FirewallClient.RunAsync(request, (result, failure) => post(() => OnFirewallDone(request, signature, announceAdded, announceRepaired, result, failure)));
+        }
+
+        private void OnFirewallDone(FirewallRequest request, string signature, bool announceAdded, bool announceRepaired, FirewallSyncResult result, string failure)
+        {
+            firewallRunning = false;
+            if (failure != null)
             {
-                bool inputsChanged = signature != lastSignature;
-                List<string> drift = inputsChanged ? null : FirewallGuard.Verify(executables);
-                bool due = forceFullSync || inputsChanged || now - lastFullSyncUtc > FullSyncInterval || drift.Count > 0;
-                if (due)
-                {
-                    FirewallSyncResult result = FirewallGuard.Sync(executables, adapters);
-                    lastSignature = signature;
-                    lastFullSyncUtc = now;
-                    if (result.Added > 0 && !firstEvaluation) report.Events.Add("Под защиту взято программ: " + result.Added);
-                    if (result.Repaired > 0 && !inputsChanged) report.Events.Add("Правила брандмауэра были изменены извне и восстановлены: " + result.Repaired);
-                    if (result.PresentAdaptersOnly) report.Details.Add("Правила знают только подключённые сейчас адаптеры");
-                    foreach (string error in result.Errors) report.Problems.Add("Брандмауэр: " + error);
-                }
-                report.Problems.AddRange(FirewallGuard.PolicyProblems());
-                foreach (string profile in disabledProfiles) report.Problems.Add("Защита не работает: " + profile);
+                AppLog.Append("firewall worker failed: " + failure);
+                firewallSynced = false;
+                firewallDrift = false;
+                lastSignature = signature;
+                firewallProblems = new List<string> { "Брандмауэр Windows не принимает правила (" + failure + ") — защита не работает" };
+                changed();
+                return;
             }
-            catch (COMException error)
+            var problems = new List<string>();
+            foreach (string error in result.Errors) problems.Add("Брандмауэр: " + error);
+            problems.AddRange(result.PolicyProblems);
+            firewallProblems = problems;
+            if (request.VerifyOnly)
             {
-                lastSignature = null;
-                report.Problems.Add("Брандмауэр недоступен: " + error.Message);
+                firewallDrift = result.Drift.Count > 0;
+                if (firewallDrift) AppLog.Append("firewall drift: " + string.Join("; ", result.Drift));
             }
-            catch (UnauthorizedAccessException error)
+            else
             {
-                lastSignature = null;
-                report.Problems.Add("Брандмауэр недоступен: " + error.Message);
+                firewallDrift = false;
+                appliedInterfaces = result.AppliedInterfaces;
+                lastSignature = signature;
+                firewallSynced = result.Errors.Count == 0;
+                if (result.Added > 0 && announceAdded) firewallEvents.Add("Под защиту взято программ: " + result.Added);
+                if (result.Repaired > 0 && announceRepaired) firewallEvents.Add("Правила брандмауэра были изменены извне и восстановлены: " + result.Repaired);
             }
-            finally
-            {
-                FirewallCrashMarker.Clear();
-            }
+            changed();
         }
 
         private void TrackVpn(GuardReport report, NetworkAdapter vpn, DateTime now)
@@ -295,6 +309,13 @@ namespace ClaudeVpnGuard
             {
                 report.Status = GuardStatus.Broken;
                 report.Headline = report.Problems[0];
+                return;
+            }
+            if (!firewallSynced)
+            {
+                report.Status = GuardStatus.Offline;
+                report.Headline = "Настраиваю брандмауэр…";
+                report.Settling = true;
                 return;
             }
             if (!settings.HasVpnAdapters || !adapters.HasVpnAdapter)

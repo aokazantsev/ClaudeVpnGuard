@@ -24,6 +24,7 @@ namespace ClaudeVpnGuard
         private GuardReport report;
         private SettingsForm settingsForm;
         private bool forceFullSync = true;
+        private GuardStatus? settledStatus;
 
         public TrayApplication()
         {
@@ -129,7 +130,7 @@ namespace ClaudeVpnGuard
 
         private void Refresh()
         {
-            GuardStatus? previous = report == null ? (GuardStatus?)null : report.Status;
+            GuardStatus? previous = settledStatus;
             string previousHeadline = report == null ? null : report.Headline;
             bool force = forceFullSync;
             forceFullSync = false;
@@ -150,6 +151,8 @@ namespace ClaudeVpnGuard
             string tip = AppIdentity.Name + ": " + report.Headline;
             trayIcon.Text = tip.Length > MaxTrayTextLength ? tip.Substring(0, MaxTrayTextLength - 1) + "…" : tip;
 
+            if (report.Settling) return;
+            settledStatus = report.Status;
             if (!settings.Notifications) return;
             bool statusChanged = previous.HasValue && previous.Value != report.Status;
             bool firstAlarm = !previous.HasValue && report.Status != GuardStatus.Protected;

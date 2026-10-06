@@ -18,12 +18,12 @@ namespace ClaudeVpnGuard
             get { return Adapters.Find(adapter => adapter.IsVpn && adapter.IsUp && adapter.Addresses.Count > 0); }
         }
 
-        public List<string> BlockedInterfaceNames(bool presentOnly)
+        public List<string> BlockedInterfaceNames()
         {
             var names = new List<string>();
             foreach (NetworkAdapter adapter in Adapters)
             {
-                if (adapter.IsVpn || (presentOnly && !adapter.IsPresent)) continue;
+                if (adapter.IsVpn || !adapter.IsPresent) continue;
                 if (!names.Exists(name => string.Equals(name, adapter.Name, StringComparison.OrdinalIgnoreCase))) names.Add(adapter.Name);
             }
             names.Sort(StringComparer.OrdinalIgnoreCase);
