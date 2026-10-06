@@ -50,7 +50,26 @@ namespace ClaudeVpnGuard
 
         public static List<SetupOption> Options()
         {
-            return new List<SetupOption>();
+            return new List<SetupOption>
+            {
+                new SetupOption
+                {
+                    Key = CrashReportConsent.OptionKey,
+                    Text = "Отправлять автору отчёты о сбоях",
+                    Hint = "В отчёт попадает журнал программы, а в нём — имя пользователя и компьютера, пути к файлам и сетевые адреса, "
+                        + "в том числе адреса внутри VPN компании. Не включай, если это запрещают правила твоей компании.",
+                    DetailsTitle = "Что уходит в отчёте",
+                    Details = "Отчёт уходит один раз — при сбое программы или брандмауэра Windows — на aokazantsev.ru (сервер в России), "
+                        + "без повторных попыток:\n"
+                        + "• версия программы, Windows и .NET;\n"
+                        + "• текст ошибки;\n"
+                        + "• последние 100 КБ журнала C:\\ProgramData\\ClaudeVpnGuard\\log.txt: имя пользователя и компьютера Windows, "
+                        + "пути к программам Claude, названия сетевых адаптеров, адреса DNS-серверов VPN и адреса Claude внутри VPN;\n"
+                        + "• IP-адрес, с которого пришёл отчёт.\n"
+                        + "Отчёты видит только автор, хранятся последние 50 МБ. Изменить выбор — переустановить программу.",
+                    Checked = CrashReportConsent.IsGiven
+                }
+            };
         }
 
         public static void BeforeExtract(InstallRequest request, Action<int, string> report, List<string> notes)
@@ -60,6 +79,8 @@ namespace ClaudeVpnGuard
             AppSettings settings = AppSettings.Load();
             settings.VpnAdapters = AppSettings.ParseList(request.Value(VpnAdapterKey));
             if (!settings.TrySave()) throw new InvalidOperationException("Не удалось записать настройки в " + AppSettings.FilePath + ".");
+            CrashReportConsent.Set(request.Has(CrashReportConsent.OptionKey));
+            SetupLog.Append("crash reports: " + request.Has(CrashReportConsent.OptionKey));
             if (!settings.HasVpnAdapters) notes.Add("Адаптер VPN не указан — у Claude не будет сети, пока не выберешь его в настройках программы.");
             string firewallProblem = FirewallProblem();
             SetupLog.Append("firewall: " + (firewallProblem ?? "ok"));

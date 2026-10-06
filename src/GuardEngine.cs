@@ -39,6 +39,7 @@ namespace ClaudeVpnGuard
         private int leakTicks;
         private int evaluations;
         private bool firewallRunning;
+        private bool firewallFailureReported;
         private bool firewallSynced;
         private bool firewallDrift;
         private DateTime lastVerifyUtc = DateTime.MinValue;
@@ -162,6 +163,12 @@ namespace ClaudeVpnGuard
             if (failure != null)
             {
                 AppLog.Append("firewall worker failed: " + failure);
+                if (!firewallFailureReported)
+                {
+                    firewallFailureReported = true;
+                    string reportText = failure;
+                    ThreadPool.QueueUserWorkItem(state => CrashReport.Upload("firewall", reportText));
+                }
                 firewallSynced = false;
                 firewallDrift = false;
                 lastSignature = signature;
