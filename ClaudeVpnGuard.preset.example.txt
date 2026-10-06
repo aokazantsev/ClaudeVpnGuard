@@ -1,0 +1,3 @@
+vpnAdapters=Fortinet
+probeHost=example.com
+probePort=443

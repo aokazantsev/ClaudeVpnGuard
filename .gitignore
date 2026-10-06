@@ -1,0 +1,7 @@
+ClaudeVpnGuard.exe
+ClaudeVpnGuard.old.exe
+ClaudeVpnGuard.exe.config
+Uninstall.exe
+installer/obj/
+dist/
+*.preset.txt
