@@ -40,6 +40,8 @@ namespace ClaudeVpnGuard
             trayIcon.ContextMenuStrip = new ContextMenuStrip();
             trayIcon.ContextMenuStrip.Opening += OnMenuOpening;
             trayIcon.MouseDoubleClick += (sender, e) => ShowSettings();
+            trayIcon.Icon = StatusIconPainter.Paint(GuardStatus.Offline);
+            trayIcon.Text = AppIdentity.Name + ": проверяю…";
             trayIcon.Visible = true;
 
             tickTimer.Interval = TickIntervalMs;
@@ -173,6 +175,7 @@ namespace ClaudeVpnGuard
             TrayMenu.Fill(trayIcon.ContextMenuStrip, report, Autostart.IsEnabled(),
                 () =>
                 {
+                    engine.RetryFirewall();
                     forceFullSync = true;
                     Refresh();
                 },

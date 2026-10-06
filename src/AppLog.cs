@@ -11,6 +11,13 @@ namespace ClaudeVpnGuard
         public static readonly string FilePath = Path.Combine(AppIdentity.DataDirectory, "log.txt");
         private static readonly string PreviousFilePath = Path.Combine(AppIdentity.DataDirectory, "log.old.txt");
 
+        public static bool TraceEnabled;
+
+        public static void Trace(string line)
+        {
+            if (TraceEnabled) Append("  " + line);
+        }
+
         public static void Append(string line)
         {
             try

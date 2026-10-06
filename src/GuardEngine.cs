@@ -36,6 +36,8 @@ namespace ClaudeVpnGuard
         private bool firstEvaluation = true;
         private int leakTicks;
         private int evaluations;
+        private bool firewallCrashed;
+        private string firewallCrashStep;
 
         public GuardEngine(AppSettings settings, Action<Action> post, Action changed)
         {
@@ -43,6 +45,20 @@ namespace ClaudeVpnGuard
             this.post = post;
             this.changed = changed;
             pins = SafeReadPins();
+            firewallCrashed = FirewallCrashMarker.Exists();
+            if (firewallCrashed)
+            {
+                firewallCrashStep = FirewallCrashMarker.Read();
+                AppLog.Append("previous run stopped inside firewall step: " + firewallCrashStep);
+            }
+        }
+
+        public void RetryFirewall()
+        {
+            if (!firewallCrashed) return;
+            AppLog.Append("firewall retry requested");
+            firewallCrashed = false;
+            FirewallCrashMarker.Clear();
         }
 
         public void Reconfigure(AppSettings newSettings)
@@ -59,6 +75,7 @@ namespace ClaudeVpnGuard
             var report = new GuardReport();
             DateTime now = DateTime.UtcNow;
             evaluations++;
+            AppLog.TraceEnabled = evaluations <= TracedEvaluations;
             Trace("evaluate #" + evaluations + ", force=" + forceFullSync);
             if (!IsElevated())
             {
@@ -105,6 +122,22 @@ namespace ClaudeVpnGuard
         private void SyncFirewall(GuardReport report, SortedSet<string> executables, AdapterSnapshot adapters, bool forceFullSync, DateTime now)
         {
             string signature = string.Join("|", executables) + "#" + string.Join("|", adapters.BlockedInterfaceNames(false));
+            if (firewallCrashed)
+            {
+                lastSignature = null;
+                report.Problems.Add("Брандмауэр Windows уронил программу — защита не работает. Повторить: «Проверить сейчас»");
+                report.Details.Add("Сбой при прошлом запуске: " + firewallCrashStep);
+                return;
+            }
+            string serviceProblem = FirewallHealth.ServiceProblem();
+            if (serviceProblem != null)
+            {
+                lastSignature = null;
+                report.Problems.Add("Защита не работает: " + serviceProblem);
+                return;
+            }
+            List<string> disabledProfiles = FirewallHealth.DisabledProfiles();
+            FirewallCrashMarker.Set("синхронизация правил брандмауэра");
             try
             {
                 bool inputsChanged = signature != lastSignature;
@@ -121,6 +154,7 @@ namespace ClaudeVpnGuard
                     foreach (string error in result.Errors) report.Problems.Add("Брандмауэр: " + error);
                 }
                 report.Problems.AddRange(FirewallGuard.PolicyProblems());
+                foreach (string profile in disabledProfiles) report.Problems.Add("Защита не работает: " + profile);
             }
             catch (COMException error)
             {
@@ -131,6 +165,10 @@ namespace ClaudeVpnGuard
             {
                 lastSignature = null;
                 report.Problems.Add("Брандмауэр недоступен: " + error.Message);
+            }
+            finally
+            {
+                FirewallCrashMarker.Clear();
             }
         }
 
@@ -309,9 +347,9 @@ namespace ClaudeVpnGuard
             report.Headline = "Claude работает только через VPN";
         }
 
-        private void Trace(string line)
+        private static void Trace(string line)
         {
-            if (evaluations <= TracedEvaluations) AppLog.Append("  " + line);
+            AppLog.Trace(line);
         }
 
         private static Dictionary<string, string> SafeReadPins()

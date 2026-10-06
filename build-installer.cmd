@@ -3,10 +3,10 @@ setlocal
 cd /d "%~dp0"
 set APP=ClaudeVpnGuard
 set CSC="%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-set REFS=/r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /r:System.Core.dll
+set REFS=/r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /r:System.Core.dll /r:System.ServiceProcess.dll
 set SHARED=src\AppIdentity.cs src\Autostart.cs
-set UNINSTALL_EXTRA=src\FirewallGuard.cs src\FirewallSyncResult.cs src\AdapterSnapshot.cs src\NetworkAdapter.cs src\HostsPinner.cs
-set SETUP_EXTRA=src\AppSettings.cs
+set UNINSTALL_EXTRA=src\FirewallHealth.cs src\AppLog.cs src\FirewallGuard.cs src\FirewallSyncResult.cs src\AdapterSnapshot.cs src\NetworkAdapter.cs src\HostsPinner.cs
+set SETUP_EXTRA=src\AppSettings.cs src\FirewallHealth.cs
 set PREBUILD=
 set PAYLOAD=installer\obj\payload.zip
 set OUTDIR=%~dp0dist

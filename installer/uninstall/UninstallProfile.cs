@@ -12,13 +12,21 @@ namespace ClaudeVpnGuard
 
         public static void Remove(List<string> problems)
         {
-            try
+            string serviceProblem = FirewallHealth.ServiceProblem();
+            if (serviceProblem != null)
             {
-                FirewallGuard.RemoveAll();
+                problems.Add("правила брандмауэра (группа «" + AppIdentity.FirewallGroup + "») не сняты: " + serviceProblem);
             }
-            catch (COMException error)
+            else
             {
-                problems.Add("правила брандмауэра (группа «" + AppIdentity.FirewallGroup + "») не сняты: " + error.Message);
+                try
+                {
+                    FirewallGuard.RemoveAll();
+                }
+                catch (COMException error)
+                {
+                    problems.Add("правила брандмауэра (группа «" + AppIdentity.FirewallGroup + "») не сняты: " + error.Message);
+                }
             }
             try
             {

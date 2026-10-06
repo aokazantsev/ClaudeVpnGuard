@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 set APP=ClaudeVpnGuard
-set REFS=/r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /r:System.Core.dll
+set REFS=/r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /r:System.Core.dll /r:System.ServiceProcess.dll
 set EXTRA=
 
 if exist %APP%.exe del /f /q %APP%.exe >nul 2>&1

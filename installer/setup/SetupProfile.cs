@@ -23,7 +23,15 @@ namespace ClaudeVpnGuard
 
         public static string Notice()
         {
-            return null;
+            string problem = FirewallProblem();
+            if (problem == null) return null;
+            return "Внимание: " + problem + ". Без брандмауэра Windows защита не работает — включи его. Установить можно и сейчас: значок покажет, когда всё заработает.";
+        }
+
+        private static string FirewallProblem()
+        {
+            List<string> problems = FirewallHealth.Problems();
+            return problems.Count == 0 ? null : string.Join("; ", problems.ToArray());
         }
 
         public static List<SetupField> Fields()
@@ -81,6 +89,9 @@ namespace ClaudeVpnGuard
             }
             if (!settings.TrySave()) throw new InvalidOperationException("Не удалось записать настройки в " + AppSettings.FilePath + ".");
             if (!settings.HasVpnAdapters) notes.Add("Адаптер VPN не указан — у Claude не будет сети, пока не выберешь его в настройках программы.");
+            string firewallProblem = FirewallProblem();
+            SetupLog.Append("firewall: " + (firewallProblem ?? "ok"));
+            if (firewallProblem != null) notes.Add("Защита пока не работает: " + firewallProblem + ". Включи брандмауэр Windows — программа подхватит его сама.");
         }
 
         public static void AfterExtract(InstallRequest request, Action<int, string> report, List<string> notes)
