@@ -92,18 +92,11 @@ namespace ClaudeVpnGuard
             {
                 start.UseShellExecute = false;
                 start.CreateNoWindow = true;
-                start.RedirectStandardOutput = true;
-                start.RedirectStandardError = true;
             }
             try
             {
                 using (Process process = Process.Start(start))
                 {
-                    if (!elevate)
-                    {
-                        process.StandardOutput.ReadToEnd();
-                        process.StandardError.ReadToEnd();
-                    }
                     return process.WaitForExit(CommandTimeoutMs) ? process.ExitCode : -1;
                 }
             }
