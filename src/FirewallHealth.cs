@@ -24,7 +24,8 @@ namespace ClaudeVpnGuard
                 {
                     ServiceControllerStatus status = service.Status;
                     if (status == ServiceControllerStatus.Running) return null;
-                    return "служба брандмауэра Windows не запущена (" + status + ")";
+                    if (status == ServiceControllerStatus.Stopped) return "служба брандмауэра Windows остановлена";
+                    return "служба брандмауэра Windows не запущена";
                 }
             }
             catch (InvalidOperationException)
