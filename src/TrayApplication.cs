@@ -33,7 +33,7 @@ namespace ClaudeVpnGuard
                 + ", clr=" + Environment.Version + ", exe=" + Application.ExecutablePath);
             settings = AppSettings.Load();
             AppLog.Append("settings: file=" + AppSettings.FileExists + ", vpn=" + string.Join("|", settings.VpnAdapters)
-                + ", probe=" + settings.ProbeHost + ":" + settings.ProbePort + ", extra=" + settings.ExtraExecutables.Count);
+                + ", extra=" + settings.ExtraExecutables.Count);
             invoker.CreateControl();
             engine = new GuardEngine(settings, Post, RefreshSoon);
             AppLog.Append("engine created");
@@ -207,7 +207,7 @@ namespace ClaudeVpnGuard
             }
             settings = updated;
             engine.Reconfigure(updated);
-            AppLog.Append("settings saved: vpn=" + string.Join("|", updated.VpnAdapters) + " probe=" + updated.ProbeHost);
+            AppLog.Append("settings saved: vpn=" + string.Join("|", updated.VpnAdapters));
             forceFullSync = true;
             Refresh();
         }

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Globalization;
 using System.Windows.Forms;
 
 namespace ClaudeVpnGuard
@@ -11,8 +10,6 @@ namespace ClaudeVpnGuard
         private readonly AppSettings original;
         private readonly Action<AppSettings> save;
         private readonly CheckedListBox adapters = new CheckedListBox();
-        private readonly TextBox probeHost = new TextBox();
-        private readonly TextBox probePort = new TextBox();
         private readonly TextBox pinnedHosts = new TextBox();
         private readonly TextBox criticalHosts = new TextBox();
         private readonly TextBox extraExecutables = new TextBox();
@@ -29,7 +26,7 @@ namespace ClaudeVpnGuard
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(620, 640);
+            ClientSize = new Size(620, 585);
             Font = SystemFonts.MessageBoxFont;
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1 };
@@ -42,16 +39,6 @@ namespace ClaudeVpnGuard
             adapters.CheckOnClick = true;
             layout.Controls.Add(adapters);
             FillAdapters(settings);
-
-            AddLabel(layout, "Корпоративный узел для проверки VPN (необязательно) и порт:");
-            var probeRow = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0) };
-            probeHost.Width = 420;
-            probeHost.Text = settings.ProbeHost;
-            probePort.Width = 70;
-            probePort.Text = settings.ProbePort.ToString(CultureInfo.InvariantCulture);
-            probeRow.Controls.Add(probeHost);
-            probeRow.Controls.Add(probePort);
-            layout.Controls.Add(probeRow);
 
             AddLabel(layout, "Адреса Claude, которые закрепляются в hosts по DNS VPN (по одному в строке):");
             AddMultiline(layout, pinnedHosts, settings.PinnedHosts, 110);
@@ -68,7 +55,8 @@ namespace ClaudeVpnGuard
             layout.Controls.Add(notifications);
 
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true };
-            var cancel = new Button { Text = "Отмена", DialogResult = DialogResult.Cancel, AutoSize = true };
+            var cancel = new Button { Text = "Отмена", AutoSize = true };
+            cancel.Click += (sender, e) => Close();
             var ok = new Button { Text = "Сохранить", AutoSize = true };
             ok.Click += OnSave;
             buttons.Controls.Add(cancel);
@@ -97,12 +85,6 @@ namespace ClaudeVpnGuard
 
         private void OnSave(object sender, EventArgs e)
         {
-            int port;
-            if (!int.TryParse(probePort.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out port) || port < 1 || port > 65535)
-            {
-                MessageBox.Show(this, "Порт — число от 1 до 65535.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
             var updated = AppSettings.LoadFrom(AppSettings.FilePath);
             updated.VpnAdapters = new List<string>();
             foreach (int index in adapters.CheckedIndices)
@@ -115,8 +97,6 @@ namespace ClaudeVpnGuard
                 bool shown = adapterRows.Exists(row => original.IsVpnAdapter(row.Description) && row.Description.IndexOf(match, StringComparison.OrdinalIgnoreCase) >= 0);
                 if (!shown && !updated.VpnAdapters.Contains(match)) updated.VpnAdapters.Add(match);
             }
-            updated.ProbeHost = probeHost.Text.Trim();
-            updated.ProbePort = port;
             updated.PinnedHosts = AppSettings.ParseList(pinnedHosts.Text);
             updated.CriticalHosts = AppSettings.ParseList(criticalHosts.Text);
             updated.ExtraExecutables = AppSettings.ParseList(extraExecutables.Text);

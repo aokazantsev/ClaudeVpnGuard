@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -8,11 +7,7 @@ namespace ClaudeVpnGuard
 {
     internal sealed class AppSettings
     {
-        public const int DefaultProbePort = 443;
-
         private const string VpnAdaptersKey = "vpnAdapters";
-        private const string ProbeHostKey = "probeHost";
-        private const string ProbePortKey = "probePort";
         private const string PinnedHostsKey = "pinnedHosts";
         private const string CriticalHostsKey = "criticalHosts";
         private const string ExtraExecutablesKey = "extraExecutables";
@@ -23,8 +18,6 @@ namespace ClaudeVpnGuard
         public static readonly string FilePath = Path.Combine(AppIdentity.DataDirectory, "settings.txt");
 
         public List<string> VpnAdapters = new List<string>();
-        public string ProbeHost = "";
-        public int ProbePort = DefaultProbePort;
         public List<string> PinnedHosts = new List<string>
         {
             "api.anthropic.com",
@@ -85,8 +78,6 @@ namespace ClaudeVpnGuard
         {
             var content = new StringBuilder();
             AppendLine(content, VpnAdaptersKey, Join(VpnAdapters));
-            AppendLine(content, ProbeHostKey, ProbeHost);
-            AppendLine(content, ProbePortKey, ProbePort.ToString(CultureInfo.InvariantCulture));
             AppendLine(content, PinnedHostsKey, Join(PinnedHosts));
             AppendLine(content, CriticalHostsKey, Join(CriticalHosts));
             AppendLine(content, ExtraExecutablesKey, Join(ExtraExecutables));
@@ -120,8 +111,6 @@ namespace ClaudeVpnGuard
         private void Apply(string key, string value)
         {
             if (Is(key, VpnAdaptersKey)) VpnAdapters = ParseList(value);
-            else if (Is(key, ProbeHostKey)) ProbeHost = value;
-            else if (Is(key, ProbePortKey)) ProbePort = ParseInt(value, DefaultProbePort, 1, 65535);
             else if (Is(key, PinnedHostsKey)) PinnedHosts = ParseList(value);
             else if (Is(key, CriticalHostsKey)) CriticalHosts = ParseList(value);
             else if (Is(key, ExtraExecutablesKey)) ExtraExecutables = ParseList(value);
@@ -142,13 +131,6 @@ namespace ClaudeVpnGuard
         private static string Join(List<string> items)
         {
             return string.Join(ListSeparator.ToString(), items);
-        }
-
-        private static int ParseInt(string value, int fallback, int min, int max)
-        {
-            int parsed;
-            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)) return fallback;
-            return Math.Max(min, Math.Min(max, parsed));
         }
 
         private static bool Is(string key, string expected)

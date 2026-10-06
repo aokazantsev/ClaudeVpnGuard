@@ -18,6 +18,7 @@ namespace ClaudeVpnGuard
         private static readonly TimeSpan DnsRefreshInterval = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan DnsRetryInterval = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan ProbeRetryInterval = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan ConnectGrace = TimeSpan.FromSeconds(15);
 
         private readonly Action<Action> post;
@@ -30,7 +31,8 @@ namespace ClaudeVpnGuard
         private DateTime lastProbeUtc = DateTime.MinValue;
         private bool dnsRefreshRunning;
         private bool probeRunning;
-        private bool? probeOk;
+        private ProbeOutcome? probeOutcome;
+        private string probeDetail;
         private bool wasVpnUp;
         private DateTime vpnUpSinceUtc = DateTime.MinValue;
         private bool firstEvaluation = true;
@@ -64,7 +66,7 @@ namespace ClaudeVpnGuard
             lastSignature = null;
             nextDnsRefreshUtc = DateTime.MinValue;
             lastProbeUtc = DateTime.MinValue;
-            probeOk = null;
+            probeOutcome = null;
         }
 
         public GuardReport Evaluate(bool forceFullSync)
@@ -118,7 +120,9 @@ namespace ClaudeVpnGuard
 
         private void SyncFirewall(GuardReport report, SortedSet<string> executables, AdapterSnapshot adapters, bool forceFullSync, DateTime now)
         {
-            string signature = string.Join("|", executables) + "#" + string.Join("|", adapters.BlockedInterfaceNames());
+            bool cutOff = probeOutcome != ProbeOutcome.Reachable;
+            List<string> interfaces = adapters.BlockedInterfaceNames(cutOff);
+            string signature = string.Join("|", executables) + "#" + string.Join("|", interfaces);
             string serviceProblem = FirewallHealth.ServiceProblem();
             if (serviceProblem != null)
             {
@@ -141,7 +145,7 @@ namespace ClaudeVpnGuard
 
             var request = new FirewallRequest { VerifyOnly = !syncDue, Trace = AppLog.TraceEnabled };
             request.Executables.AddRange(executables);
-            request.Interfaces.AddRange(adapters.BlockedInterfaceNames());
+            request.Interfaces.AddRange(interfaces);
             request.AppliedInterfaces.AddRange(appliedInterfaces);
             bool announceAdded = !firstEvaluation;
             bool announceRepaired = !inputsChanged;
@@ -194,10 +198,14 @@ namespace ClaudeVpnGuard
                 vpnUpSinceUtc = firstEvaluation ? DateTime.MinValue : now;
                 nextDnsRefreshUtc = DateTime.MinValue;
                 lastProbeUtc = DateTime.MinValue;
-                probeOk = null;
+                probeOutcome = null;
                 if (!firstEvaluation) report.Events.Add("VPN подключён");
             }
-            if (!vpnUp && wasVpnUp) report.Events.Add("VPN отключён — у Claude нет сети");
+            if (!vpnUp && wasVpnUp)
+            {
+                probeOutcome = null;
+                report.Events.Add("VPN отключён — у Claude нет сети");
+            }
             wasVpnUp = vpnUp;
         }
 
@@ -206,6 +214,7 @@ namespace ClaudeVpnGuard
             if (vpn == null || dnsRefreshRunning || now < nextDnsRefreshUtc || vpn.DnsServers.Count == 0) return;
             dnsRefreshRunning = true;
             var hosts = new List<string>(settings.PinnedHosts);
+            if (!hosts.Contains(ClaudeProbe.Host)) hosts.Add(ClaudeProbe.Host);
             var servers = new List<IPAddress>(vpn.DnsServers);
             int vpnIndex = vpn.Ipv4Index;
             bool traced = evaluations <= TracedEvaluations;
@@ -290,15 +299,26 @@ namespace ClaudeVpnGuard
 
         private void StartProbe(NetworkAdapter vpn, DateTime now)
         {
-            if (vpn == null || probeRunning || settings.ProbeHost.Length == 0 || now - lastProbeUtc < ProbeInterval) return;
+            TimeSpan interval = probeOutcome == ProbeOutcome.Reachable ? ProbeInterval : ProbeRetryInterval;
+            if (vpn == null || probeRunning || now - lastProbeUtc < interval) return;
+            string pinned;
+            IPAddress target;
+            IPAddress vpnAddress = vpn.Ipv4Address;
+            if (!pins.TryGetValue(ClaudeProbe.Host, out pinned) || pinned == HostsPinner.BlackholeAddress
+                || !IPAddress.TryParse(pinned, out target) || vpnAddress == null) return;
             probeRunning = true;
             lastProbeUtc = now;
-            CorporateProbe.CheckAsync(settings.ProbeHost, settings.ProbePort, ok => post(() =>
+            ClaudeProbe.CheckAsync(target, vpnAddress, vpn.Ipv4Index, (outcome, detail) => post(() =>
             {
                 probeRunning = false;
-                bool wasOk = probeOk.HasValue && probeOk.Value;
-                probeOk = ok;
-                if (ok != wasOk) changed();
+                ProbeOutcome? previous = probeOutcome;
+                probeOutcome = outcome;
+                probeDetail = detail;
+                if (previous != outcome)
+                {
+                    AppLog.Append("probe " + ClaudeProbe.Host + ": " + outcome + " — " + detail);
+                    changed();
+                }
             }));
         }
 
@@ -332,11 +352,21 @@ namespace ClaudeVpnGuard
             }
             report.Details.Add("VPN: " + vpn.Name + " (" + vpn.Description + ")");
             var warnings = new List<string>();
-            if (settings.ProbeHost.Length > 0)
+            if (probeOutcome == ProbeOutcome.Bypass)
             {
-                string probe = !probeOk.HasValue ? "проверяю" : probeOk.Value ? "отвечает" : "не отвечает";
-                report.Details.Add(settings.ProbeHost + ": " + probe);
-                if (probeOk.HasValue && !probeOk.Value) warnings.Add(settings.ProbeHost + " не отвечает — VPN подключён не полностью");
+                report.Details.Add("Проверка Claude: " + probeDetail);
+                report.Status = GuardStatus.Broken;
+                report.Headline = "Путь к Claude идёт мимо VPN — сеть Claude отключена";
+                return;
+            }
+            if (probeOutcome == ProbeOutcome.Unreachable)
+            {
+                report.Details.Add("Проверка Claude: " + probeDetail);
+                warnings.Add("Claude не отвечает через VPN — сеть Claude отключена");
+            }
+            else if (probeOutcome == ProbeOutcome.Reachable)
+            {
+                report.Details.Add("Проверка Claude: " + probeDetail + " отвечает через VPN");
             }
             foreach (string host in settings.CriticalHosts)
             {
@@ -362,6 +392,13 @@ namespace ClaudeVpnGuard
             {
                 report.Status = GuardStatus.Warning;
                 report.Headline = warnings[0];
+                return;
+            }
+            if (probeOutcome == null)
+            {
+                report.Status = GuardStatus.Offline;
+                report.Headline = "Проверяю доступ к Claude через VPN…";
+                report.Settling = true;
                 return;
             }
             report.Status = GuardStatus.Protected;
