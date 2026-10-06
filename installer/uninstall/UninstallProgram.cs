@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -11,7 +10,6 @@ namespace ClaudeVpnGuard
     internal static class UninstallProgram
     {
         private const string RemoveCommand = "/remove";
-        private const string QuietFlag = "/quiet";
         private const int DeleteAttempts = 20;
         private const int DeleteRetryMs = 500;
         private const string Title = "Удаление " + AppIdentity.Name;
@@ -20,78 +18,47 @@ namespace ClaudeVpnGuard
         private static int Main(string[] args)
         {
             Application.EnableVisualStyles();
-            bool quiet = Array.IndexOf(args, QuietFlag) >= 0;
-            if (args.Length >= 2 && args[0] == RemoveCommand) return Remove(args[1], quiet);
-            return Confirm(Path.GetDirectoryName(Application.ExecutablePath), quiet);
+            if (args.Length >= 2 && args[0] == RemoveCommand) return Remove(args[1]);
+            return Confirm(Path.GetDirectoryName(Application.ExecutablePath));
         }
 
-        private static int Confirm(string installDirectory, bool quiet)
+        private static int Confirm(string installDirectory)
         {
-            if (!quiet)
-            {
-                DialogResult answer = MessageBox.Show(
-                    "Удалить " + AppIdentity.Name + "?" + Environment.NewLine + Environment.NewLine
-                    + "Снимутся правила брандмауэра и блок в hosts: Claude снова сможет выходить в сеть без VPN. "
-                    + "Удалятся программа, настройки, журнал, автозапуск и запись в «Приложениях».",
-                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-                if (answer != DialogResult.Yes) return 1;
-            }
+            DialogResult answer = MessageBox.Show(
+                "Удалить " + AppIdentity.Name + "?" + Environment.NewLine + Environment.NewLine
+                + "Удалятся программа, её настройки и данные, автозапуск и запись в «Приложениях». "
+                + UninstallProfile.ConfirmDetails,
+                Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes) return 1;
             string worker = Path.Combine(Path.GetTempPath(), AppIdentity.Name + "Uninstall-" + Guid.NewGuid().ToString("N") + ".exe");
             File.Copy(Application.ExecutablePath, worker, true);
-            string arguments = RemoveCommand + " \"" + installDirectory + "\"" + (quiet ? " " + QuietFlag : "");
-            Process.Start(new ProcessStartInfo(worker, arguments) { UseShellExecute = false });
+            Process.Start(new ProcessStartInfo(worker, RemoveCommand + " \"" + installDirectory + "\"") { UseShellExecute = false });
             return 0;
         }
 
-        private static int Remove(string installDirectory, bool quiet)
+        private static int Remove(string installDirectory)
         {
             var problems = new List<string>();
             if (!RunningApp.Stop()) problems.Add(AppIdentity.Name + " не закрылся");
-            try
-            {
-                FirewallGuard.RemoveAll();
-            }
-            catch (COMException error)
-            {
-                problems.Add("правила брандмауэра (группа «" + AppIdentity.FirewallGroup + "») не сняты: " + error.Message);
-            }
-            try
-            {
-                HostsPinner.Remove();
-            }
-            catch (IOException error)
-            {
-                problems.Add("блок в hosts не снят: " + error.Message);
-            }
-            catch (UnauthorizedAccessException error)
-            {
-                problems.Add("блок в hosts не снят: " + error.Message);
-            }
-            if (StartupTask.IsEnabled())
-            {
-                string startupProblem = StartupTask.Disable();
-                if (startupProblem != null) problems.Add(startupProblem);
-            }
+            UninstallProfile.Remove(problems);
+            string autostartProblem = Autostart.Disable();
+            if (autostartProblem != null) problems.Add(autostartProblem);
             UninstallRegistration.Unregister();
             string dataProblem = DeleteWithRetries(AppIdentity.DataDirectory);
-            if (dataProblem != null) problems.Add("папка настроек " + dataProblem);
+            if (dataProblem != null) problems.Add("папка данных " + dataProblem);
             if (File.Exists(Path.Combine(installDirectory, AppIdentity.ExecutableName)))
             {
                 string folderProblem = DeleteWithRetries(installDirectory);
                 if (folderProblem != null) problems.Add("папка программы " + folderProblem);
             }
-
-            if (!quiet)
+            if (problems.Count == 0)
             {
-                if (problems.Count == 0)
-                {
-                    MessageBox.Show(AppIdentity.Name + " удалён, защита снята.", Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                else
-                {
-                    MessageBox.Show("Удаление закончено не полностью:" + Environment.NewLine + "• " + string.Join(Environment.NewLine + "• ", problems),
-                        Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
+                MessageBox.Show(AppIdentity.Name + " удалён.", Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show("Удаление закончено не полностью:" + Environment.NewLine + "• " + string.Join(Environment.NewLine + "• ", problems),
+                    Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             ScheduleSelfDelete();
             return problems.Count == 0 ? 0 : 2;

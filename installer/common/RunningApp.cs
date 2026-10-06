@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using System.Diagnostics;
 
@@ -23,7 +24,7 @@ namespace ClaudeVpnGuard
                     {
                         stoppedAll = false;
                     }
-                    catch (System.InvalidOperationException)
+                    catch (InvalidOperationException)
                     {
                     }
                 }

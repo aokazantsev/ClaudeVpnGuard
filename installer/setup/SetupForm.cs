@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Threading;
@@ -8,12 +9,16 @@ namespace ClaudeVpnGuard
 {
     internal sealed class SetupForm : Form
     {
-        private readonly Label status = new Label();
+        private const int ContentWidth = 520;
+
+        private readonly TextBox folderBox = new TextBox();
+        private readonly Button browseButton = new Button();
+        private readonly CheckBox autostartBox = new CheckBox();
+        private readonly List<KeyValuePair<SetupOption, CheckBox>> optionBoxes = new List<KeyValuePair<SetupOption, CheckBox>>();
+        private readonly List<KeyValuePair<SetupField, ComboBox>> fieldBoxes = new List<KeyValuePair<SetupField, ComboBox>>();
         private readonly ProgressBar progress = new ProgressBar();
-        private readonly CheckBox startup = new CheckBox();
-        private readonly CheckBox preset = new CheckBox();
-        private readonly Button install = new Button();
-        private readonly string presetPath;
+        private readonly Label status = new Label();
+        private readonly Button installButton = new Button();
 
         public SetupForm()
         {
@@ -24,66 +29,124 @@ namespace ClaudeVpnGuard
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = SystemFonts.MessageBoxFont;
-            ClientSize = new Size(560, 330);
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
-            string candidate = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), AppSettings.PresetFileName);
-            presetPath = File.Exists(candidate) ? candidate : null;
-
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1 };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            var layout = new TableLayoutPanel { AutoSize = true, Padding = new Padding(16), ColumnCount = 1 };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             Controls.Add(layout);
-            layout.Controls.Add(new Label
-            {
-                AutoSize = true,
-                MaximumSize = new Size(520, 0),
-                Text = "Claude (десктоп, Claude Code, расширения редакторов) сможет выходить в сеть только через VPN. "
-                    + "Выключен VPN — у Claude нет сети вообще.\r\n\r\n"
-                    + "Программа ставится в " + AppIdentity.DefaultInstallDirectory + ", живёт в трее и сама берёт под защиту новые версии Claude. "
-                    + "Удаление — «Параметры → Приложения»: оно снимает все правила."
-            });
 
-            preset.AutoSize = true;
-            preset.MaximumSize = new Size(520, 0);
-            preset.Margin = new Padding(0, 14, 0, 0);
-            if (presetPath != null)
+            layout.Controls.Add(Wrapped(SetupProfile.Intro, new Padding(0, 0, 0, 4)));
+            string notice = SetupProfile.Notice();
+            if (notice != null) layout.Controls.Add(Wrapped(notice, new Padding(0, 8, 0, 0)));
+
+            layout.Controls.Add(Section("Папка установки"));
+            var folderRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+            folderBox.Width = ContentWidth - 44;
+            folderBox.Text = InstallTarget.DefaultDirectory();
+            browseButton.Text = "…";
+            browseButton.Width = 36;
+            browseButton.Height = folderBox.Height + 2;
+            browseButton.Click += (sender, e) => BrowseFolder();
+            folderRow.Controls.Add(folderBox);
+            folderRow.Controls.Add(browseButton);
+            layout.Controls.Add(folderRow);
+            layout.Controls.Add(Hint("Удаление стирает эту папку целиком, поэтому подойдёт пустая папка или папка прежней установки."));
+
+            List<SetupField> fields = SetupProfile.Fields();
+            if (fields.Count > 0) layout.Controls.Add(Section("Настройки"));
+            foreach (SetupField field in fields)
             {
-                preset.Text = "Взять настройки из " + AppSettings.PresetFileName;
-                preset.Checked = !AppSettings.FileExists;
+                layout.Controls.Add(new Label { Text = field.Label, AutoSize = true, Margin = new Padding(0, 6, 0, 2) });
+                var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = ContentWidth, Text = field.Value };
+                foreach (string suggestion in field.Suggestions) box.Items.Add(suggestion);
+                box.Text = field.Value;
+                fieldBoxes.Add(new KeyValuePair<SetupField, ComboBox>(field, box));
+                layout.Controls.Add(box);
+                if (field.Hint != null) layout.Controls.Add(Hint(field.Hint));
             }
-            else
+
+            layout.Controls.Add(Section("Что сделать"));
+            foreach (SetupOption option in SetupProfile.Options())
             {
-                preset.Text = "Файла " + AppSettings.PresetFileName + " рядом нет — адаптер VPN выберешь после установки";
-                preset.Enabled = false;
+                var box = new CheckBox
+                {
+                    Text = option.Text,
+                    Checked = option.Checked,
+                    Enabled = option.Enabled,
+                    AutoSize = true,
+                    MaximumSize = new Size(ContentWidth, 0),
+                    Margin = new Padding(0, 4, 0, 0)
+                };
+                optionBoxes.Add(new KeyValuePair<SetupOption, CheckBox>(option, box));
+                layout.Controls.Add(box);
+                if (option.Hint != null) layout.Controls.Add(Hint(option.Hint));
             }
-            layout.Controls.Add(preset);
+            autostartBox.Text = "Запускать при входе в Windows";
+            autostartBox.Checked = true;
+            autostartBox.AutoSize = true;
+            autostartBox.Margin = new Padding(0, 4, 0, 0);
+            layout.Controls.Add(autostartBox);
 
-            startup.AutoSize = true;
-            startup.Checked = true;
-            startup.Text = "Запускать при входе в Windows (рекомендуется)";
-            layout.Controls.Add(startup);
-
-            progress.Dock = DockStyle.Fill;
+            progress.Width = ContentWidth;
             progress.Margin = new Padding(0, 16, 0, 4);
             layout.Controls.Add(progress);
             status.AutoSize = true;
-            status.MaximumSize = new Size(520, 0);
+            status.MaximumSize = new Size(ContentWidth, 0);
             layout.Controls.Add(status);
 
-            install.Text = "Установить";
-            install.AutoSize = true;
-            install.Anchor = AnchorStyles.Right;
-            install.Click += OnInstall;
-            layout.Controls.Add(install);
-            AcceptButton = install;
+            installButton.Text = "Установить";
+            installButton.AutoSize = true;
+            installButton.Anchor = AnchorStyles.Right;
+            installButton.Margin = new Padding(0, 8, 0, 0);
+            installButton.Click += (sender, e) => StartInstall();
+            layout.Controls.Add(installButton);
+            AcceptButton = installButton;
         }
 
-        private void OnInstall(object sender, EventArgs e)
+        private static Label Wrapped(string text, Padding margin)
         {
-            install.Enabled = false;
-            startup.Enabled = false;
-            preset.Enabled = false;
-            var installation = new Installation(presetPath, preset.Checked, startup.Checked, Report);
+            return new Label { Text = text, AutoSize = true, MaximumSize = new Size(ContentWidth, 0), Margin = margin };
+        }
+
+        private Label Section(string text)
+        {
+            return new Label { Text = text, AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 14, 0, 4) };
+        }
+
+        private static Label Hint(string text)
+        {
+            return new Label { Text = text, AutoSize = true, MaximumSize = new Size(ContentWidth, 0), ForeColor = SystemColors.GrayText, Margin = new Padding(18, 2, 0, 0) };
+        }
+
+        private void BrowseFolder()
+        {
+            using (var dialog = new FolderBrowserDialog { Description = "Папка установки " + AppIdentity.Name, ShowNewFolderButton = true })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                string chosen = dialog.SelectedPath;
+                bool isEmptyOrOurs = !Directory.Exists(chosen) || InstallTarget.Validate(chosen) == null;
+                folderBox.Text = isEmptyOrOurs ? chosen : Path.Combine(chosen, AppIdentity.Name);
+            }
+        }
+
+        private void StartInstall()
+        {
+            string problem = InstallTarget.Validate(folderBox.Text);
+            if (problem != null)
+            {
+                MessageBox.Show(this, problem, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            var request = new InstallRequest { TargetDirectory = Path.GetFullPath(folderBox.Text), EnablesAutostart = autostartBox.Checked };
+            foreach (KeyValuePair<SetupOption, CheckBox> pair in optionBoxes)
+            {
+                if (pair.Value.Enabled && pair.Value.Checked) request.CheckedOptions.Add(pair.Key.Key);
+            }
+            foreach (KeyValuePair<SetupField, ComboBox> pair in fieldBoxes) request.Values[pair.Key.Key] = pair.Value.Text.Trim();
+            SetEditable(false);
+            var installation = new Installation(request, Report);
             var worker = new Thread(() =>
             {
                 Exception failure = null;
@@ -101,6 +164,16 @@ namespace ClaudeVpnGuard
             worker.Start();
         }
 
+        private void SetEditable(bool editable)
+        {
+            folderBox.Enabled = editable;
+            browseButton.Enabled = editable;
+            autostartBox.Enabled = editable;
+            installButton.Enabled = editable;
+            foreach (KeyValuePair<SetupOption, CheckBox> pair in optionBoxes) pair.Value.Enabled = editable && pair.Key.Enabled;
+            foreach (KeyValuePair<SetupField, ComboBox> pair in fieldBoxes) pair.Value.Enabled = editable;
+        }
+
         private void Report(int percent, string message)
         {
             BeginInvoke(new Action(() =>
@@ -115,14 +188,13 @@ namespace ClaudeVpnGuard
             if (failure != null)
             {
                 status.Text = "Ошибка: " + failure.Message;
-                install.Enabled = true;
+                SetEditable(true);
                 MessageBox.Show(this, failure.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            string message = AppIdentity.Name + " установлен и запущен — значок-щит в трее.";
-            if (installation.Warnings.Count > 0) message += "\r\n\r\n" + string.Join("\r\n", installation.Warnings);
-            MessageBox.Show(this, message, Text, MessageBoxButtons.OK,
-                installation.Warnings.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+            string message = AppIdentity.Name + " установлен и запущен — значок в трее.";
+            if (installation.Notes.Count > 0) message += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine + Environment.NewLine, installation.Notes);
+            MessageBox.Show(this, message, Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
             Close();
         }
     }

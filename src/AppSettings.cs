@@ -9,7 +9,6 @@ namespace ClaudeVpnGuard
     internal sealed class AppSettings
     {
         public const int DefaultProbePort = 443;
-        public const string PresetFileName = "ClaudeVpnGuard.preset.txt";
 
         private const string VpnAdaptersKey = "vpnAdapters";
         private const string ProbeHostKey = "probeHost";

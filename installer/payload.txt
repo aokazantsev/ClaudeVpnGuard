@@ -1,0 +1,6 @@
+ClaudeVpnGuard.exe
+ClaudeVpnGuard.exe.config
+Uninstall.exe
+README.md
+LICENSE
+CHANGELOG.md

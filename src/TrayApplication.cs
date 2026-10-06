@@ -49,7 +49,7 @@ namespace ClaudeVpnGuard
             NetworkChange.NetworkAddressChanged += OnNetworkChanged;
             NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
             WatchClaudeFolders();
-            GuardLog.Append("start " + AppIdentity.Version);
+            AppLog.Append("start " + AppIdentity.Version);
             Refresh();
             if (!settings.HasVpnAdapters) ShowSettings();
         }
@@ -65,7 +65,7 @@ namespace ClaudeVpnGuard
             trayIcon.Visible = false;
             trayIcon.Dispose();
             invoker.Dispose();
-            GuardLog.Append("exit");
+            AppLog.Append("exit");
             base.ExitThreadCore();
         }
 
@@ -132,10 +132,10 @@ namespace ClaudeVpnGuard
             {
                 report = new GuardReport { Status = GuardStatus.Broken, Headline = "Сбой проверки: " + error.Message };
                 report.Problems.Add(report.Headline);
-                GuardLog.Append("evaluate failed: " + error);
+                AppLog.Append("evaluate failed: " + error);
             }
-            foreach (string line in report.Events) GuardLog.Append(line);
-            if (previousHeadline != report.Headline) GuardLog.Append("status " + report.Status + ": " + report.Headline);
+            foreach (string line in report.Events) AppLog.Append(line);
+            if (previousHeadline != report.Headline) AppLog.Append("status " + report.Status + ": " + report.Headline);
 
             trayIcon.Icon = StatusIconPainter.Paint(report.Status);
             string tip = AppIdentity.Name + ": " + report.Headline;
@@ -163,7 +163,7 @@ namespace ClaudeVpnGuard
 
         private void OnMenuOpening(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            TrayMenu.Fill(trayIcon.ContextMenuStrip, report, StartupTask.IsEnabled(),
+            TrayMenu.Fill(trayIcon.ContextMenuStrip, report, Autostart.IsEnabled(),
                 () =>
                 {
                     forceFullSync = true;
@@ -194,21 +194,21 @@ namespace ClaudeVpnGuard
             }
             settings = updated;
             engine.Reconfigure(updated);
-            GuardLog.Append("settings saved: vpn=" + string.Join("|", updated.VpnAdapters) + " probe=" + updated.ProbeHost);
+            AppLog.Append("settings saved: vpn=" + string.Join("|", updated.VpnAdapters) + " probe=" + updated.ProbeHost);
             forceFullSync = true;
             Refresh();
         }
 
         private void ToggleStartup(bool enable)
         {
-            string problem = enable ? StartupTask.Enable(Application.ExecutablePath) : StartupTask.Disable();
+            string problem = enable ? Autostart.Enable(Application.ExecutablePath) : Autostart.Disable();
             if (problem != null) MessageBox.Show(problem, AppIdentity.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         private static void OpenLog()
         {
-            if (!File.Exists(GuardLog.FilePath)) GuardLog.Append("log opened");
-            Process.Start(new ProcessStartInfo("notepad.exe", "\"" + GuardLog.FilePath + "\"") { UseShellExecute = false });
+            if (!File.Exists(AppLog.FilePath)) AppLog.Append("log opened");
+            Process.Start(new ProcessStartInfo("notepad.exe", "\"" + AppLog.FilePath + "\"") { UseShellExecute = false });
         }
 
         private void ConfirmExit()

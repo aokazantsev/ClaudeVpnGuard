@@ -4,7 +4,7 @@ using System.Text;
 
 namespace ClaudeVpnGuard
 {
-    internal static class GuardLog
+    internal static class AppLog
     {
         private const long MaxBytes = 512 * 1024;
 

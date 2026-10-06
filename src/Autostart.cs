@@ -8,24 +8,23 @@ using System.Text;
 
 namespace ClaudeVpnGuard
 {
-    internal static class StartupTask
+    internal static class Autostart
     {
-        public const string TaskName = AppIdentity.Name;
-
         private const int CommandTimeoutMs = 15000;
+        private const int CancelledByUser = 1223;
 
         public static bool IsEnabled()
         {
-            return RunSchtasks("/Query /TN \"" + TaskName + "\"") == 0;
+            return RunSchtasks("/Query /TN \"" + AppIdentity.Name + "\"", false) == 0;
         }
 
         public static string Enable(string executablePath)
         {
-            string definitionPath = Path.Combine(Path.GetTempPath(), TaskName + "-task-" + Guid.NewGuid().ToString("N") + ".xml");
+            string definitionPath = Path.Combine(Path.GetTempPath(), AppIdentity.Name + "-task-" + Guid.NewGuid().ToString("N") + ".xml");
             try
             {
                 File.WriteAllText(definitionPath, Definition(executablePath), Encoding.Unicode);
-                return Explain(RunSchtasks("/Create /TN \"" + TaskName + "\" /XML \"" + definitionPath + "\" /F"), "включить автозапуск");
+                return Explain(RunSchtasks("/Create /TN \"" + AppIdentity.Name + "\" /XML \"" + definitionPath + "\" /F", !IsElevated()), "включить автозапуск");
             }
             finally
             {
@@ -35,12 +34,8 @@ namespace ClaudeVpnGuard
 
         public static string Disable()
         {
-            return Explain(RunSchtasks("/Delete /TN \"" + TaskName + "\" /F"), "выключить автозапуск");
-        }
-
-        public static string Run()
-        {
-            return Explain(RunSchtasks("/Run /TN \"" + TaskName + "\""), "запустить " + AppIdentity.Name);
+            if (!IsEnabled()) return null;
+            return Explain(RunSchtasks("/Delete /TN \"" + AppIdentity.Name + "\" /F", !IsElevated()), "выключить автозапуск");
         }
 
         private static string Definition(string executablePath)
@@ -54,9 +49,9 @@ namespace ClaudeVpnGuard
             string directory = SecurityElement.Escape(Path.GetDirectoryName(executablePath));
             return "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n"
                 + "<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n"
-                + "  <RegistrationInfo><Description>" + AppIdentity.Name + ": Claude выходит в сеть только через VPN</Description></RegistrationInfo>\n"
+                + "  <RegistrationInfo><Description>" + AppIdentity.Name + ": запуск при входе в Windows</Description></RegistrationInfo>\n"
                 + "  <Triggers>\n"
-                + "    <LogonTrigger><Enabled>true</Enabled><UserId>" + user + "</UserId></LogonTrigger>\n"
+                + "    <LogonTrigger><Enabled>true</Enabled><UserId>" + user + "</UserId><Delay>" + AppIdentity.AutostartDelay + "</Delay></LogonTrigger>\n"
                 + "  </Triggers>\n"
                 + "  <Principals>\n"
                 + "    <Principal id=\"Author\"><UserId>" + user + "</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal>\n"
@@ -77,34 +72,51 @@ namespace ClaudeVpnGuard
                 + "</Task>\n";
         }
 
-        private static int RunSchtasks(string arguments)
+        private static bool IsElevated()
         {
-            var start = new ProcessStartInfo("schtasks.exe", arguments)
+            using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
+                return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+            }
+        }
+
+        private static int RunSchtasks(string arguments, bool elevate)
+        {
+            var start = new ProcessStartInfo("schtasks.exe", arguments) { WindowStyle = ProcessWindowStyle.Hidden };
+            if (elevate)
+            {
+                start.UseShellExecute = true;
+                start.Verb = "runas";
+            }
+            else
+            {
+                start.UseShellExecute = false;
+                start.CreateNoWindow = true;
+                start.RedirectStandardOutput = true;
+                start.RedirectStandardError = true;
+            }
             try
             {
                 using (Process process = Process.Start(start))
                 {
-                    process.StandardOutput.ReadToEnd();
-                    process.StandardError.ReadToEnd();
+                    if (!elevate)
+                    {
+                        process.StandardOutput.ReadToEnd();
+                        process.StandardError.ReadToEnd();
+                    }
                     return process.WaitForExit(CommandTimeoutMs) ? process.ExitCode : -1;
                 }
             }
-            catch (Win32Exception)
+            catch (Win32Exception error)
             {
-                return -1;
+                return error.NativeErrorCode == CancelledByUser ? CancelledByUser : -1;
             }
         }
 
         private static string Explain(int exitCode, string action)
         {
             if (exitCode == 0) return null;
+            if (exitCode == CancelledByUser) return "Не удалось " + action + ": окно UAC отклонено.";
             return "Не удалось " + action + " (schtasks, код " + exitCode + ").";
         }
     }

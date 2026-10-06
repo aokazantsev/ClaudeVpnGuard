@@ -1,12 +1,16 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-set CSC="%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-if exist ClaudeVpnGuard.exe del /f /q ClaudeVpnGuard.exe >nul 2>&1
-if exist ClaudeVpnGuard.exe (
-    if exist ClaudeVpnGuard.old.exe del /f /q ClaudeVpnGuard.old.exe >nul 2>&1
-    ren ClaudeVpnGuard.exe ClaudeVpnGuard.old.exe
+set APP=ClaudeVpnGuard
+set REFS=/r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /r:System.Core.dll
+set EXTRA=
+
+if exist %APP%.exe del /f /q %APP%.exe >nul 2>&1
+if exist %APP%.exe (
+    if exist %APP%.old.exe del /f /q %APP%.old.exe >nul 2>&1
+    ren %APP%.exe %APP%.old.exe
 )
-%CSC% /nologo /codepage:65001 /target:winexe /platform:anycpu /optimize+ /out:ClaudeVpnGuard.exe /win32manifest:src\app.manifest /win32icon:src\app.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /r:System.Core.dll src\*.cs
+"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /platform:x64 /optimize+ /out:%APP%.exe /win32manifest:src\app.manifest /win32icon:src\app.ico %REFS% %EXTRA% src\*.cs
 if errorlevel 1 exit /b 1
-copy /y src\app.config ClaudeVpnGuard.exe.config >nul
+copy /y src\app.config %APP%.exe.config >nul
+if /i not "%1"=="nostart" start "" "%~dp0%APP%.exe"
