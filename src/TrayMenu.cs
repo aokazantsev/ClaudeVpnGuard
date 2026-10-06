@@ -32,6 +32,7 @@ namespace ClaudeVpnGuard
             var startup = new ToolStripMenuItem("Запускать при входе в Windows") { Checked = startupEnabled };
             startup.Click += (s, a) => toggleStartup(!startup.Checked);
             menu.Items.Add(startup);
+            menu.Items.Add("О приложении…", null, (s, a) => AboutForm.ShowSingle());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Выход", null, (s, a) => exit());
         }
