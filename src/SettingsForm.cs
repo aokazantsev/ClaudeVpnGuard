@@ -30,7 +30,7 @@ namespace ClaudeVpnGuard
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(620, 730);
+            ClientSize = new Size(620, 745);
             Font = SystemFonts.MessageBoxFont;
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1 };
@@ -45,13 +45,13 @@ namespace ClaudeVpnGuard
             FillAdapters(settings);
 
             AddLabel(layout, "Адреса Claude, которые закрепляются в hosts по DNS VPN (по одному в строке):");
-            AddMultiline(layout, pinnedHosts, settings.PinnedHosts, 110);
+            AddMultiline(layout, pinnedHosts, settings.PinnedHosts, 95);
 
             AddLabel(layout, "Без каких из них Claude не работает (жёлтый значок, если недоступны):");
             AddMultiline(layout, criticalHosts, settings.CriticalHosts, 50);
 
             AddLabel(layout, "Через прокси VPN — DNS VPN их не подменяет, закрепляются только при подключённом VPN:");
-            AddMultiline(layout, proxiedHosts, settings.ProxiedHosts, 50);
+            AddMultiline(layout, proxiedHosts, settings.ProxiedHosts, 80);
 
             AddLabel(layout, "Дополнительные программы под защитой — полные пути к exe:");
             AddMultiline(layout, extraExecutables, settings.ExtraExecutables, 60);

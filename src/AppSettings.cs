@@ -16,6 +16,7 @@ namespace ClaudeVpnGuard
         private const string ProtectionEnabledKey = "protectionEnabled";
         private const char KeyValueSeparator = '=';
         private const char ListSeparator = '|';
+        private static readonly string[] FirstProxiedDefault = { "challenges.cloudflare.com" };
 
         public static readonly string FilePath = Path.Combine(AppIdentity.DataDirectory, "settings.txt");
 
@@ -35,7 +36,7 @@ namespace ClaudeVpnGuard
             "downloads.claude.ai"
         };
         public List<string> CriticalHosts = new List<string> { "api.anthropic.com", "claude.ai" };
-        public List<string> ProxiedHosts = new List<string> { "challenges.cloudflare.com" };
+        public List<string> ProxiedHosts = DefaultProxiedHosts();
         public List<string> ExtraExecutables = new List<string>();
         public bool Notifications = true;
         public bool ProtectionEnabled = true;
@@ -119,10 +120,30 @@ namespace ClaudeVpnGuard
             if (Is(key, VpnAdaptersKey)) VpnAdapters = ParseList(value);
             else if (Is(key, PinnedHostsKey)) PinnedHosts = ParseList(value);
             else if (Is(key, CriticalHostsKey)) CriticalHosts = ParseList(value);
-            else if (Is(key, ProxiedHostsKey)) ProxiedHosts = ParseList(value);
+            else if (Is(key, ProxiedHostsKey)) ProxiedHosts = UpgradeProxiedHosts(ParseList(value));
             else if (Is(key, ExtraExecutablesKey)) ExtraExecutables = ParseList(value);
             else if (Is(key, NotificationsKey)) Notifications = value != "0";
             else if (Is(key, ProtectionEnabledKey)) ProtectionEnabled = value != "0";
+        }
+
+        private static List<string> DefaultProxiedHosts()
+        {
+            return new List<string>
+            {
+                "hcaptcha.com",
+                "js.hcaptcha.com",
+                "api.hcaptcha.com",
+                "newassets.hcaptcha.com",
+                "imgs.hcaptcha.com",
+                "api.statsigcdn.com"
+            };
+        }
+
+        private static List<string> UpgradeProxiedHosts(List<string> saved)
+        {
+            bool firstDefault = saved.Count == FirstProxiedDefault.Length
+                && saved.TrueForAll(host => Array.Exists(FirstProxiedDefault, known => string.Equals(known, host, StringComparison.OrdinalIgnoreCase)));
+            return firstDefault ? DefaultProxiedHosts() : saved;
         }
 
         public static List<string> ParseList(string value)

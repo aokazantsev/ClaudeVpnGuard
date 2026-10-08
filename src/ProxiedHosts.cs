@@ -85,14 +85,38 @@ namespace ClaudeVpnGuard
 
         public void Describe(List<string> hosts, List<string> details)
         {
+            var separate = new List<string>();
+            string proxyAddress = null;
+            int viaProxy = 0;
+            int pending = 0;
             foreach (string host in hosts)
             {
                 string address;
                 string failure;
-                if (pins.TryGetValue(host, out address)) details.Add(host + " → " + address + " (" + routes[host] + ")");
-                else if (failures.TryGetValue(host, out failure)) details.Add(host + ": не идёт через VPN — " + failure);
-                else details.Add(host + ": проверяю путь через VPN…");
+                if (pins.TryGetValue(host, out address))
+                {
+                    if (routes[host] == ThroughProxy)
+                    {
+                        viaProxy++;
+                        proxyAddress = address;
+                    }
+                    else
+                    {
+                        separate.Add(host + " → " + address + " (" + routes[host] + ")");
+                    }
+                }
+                else if (failures.TryGetValue(host, out failure))
+                {
+                    separate.Add(host + ": не идёт через VPN — " + failure);
+                }
+                else
+                {
+                    pending++;
+                }
             }
+            if (viaProxy > 0) details.Add("Через прокси VPN " + proxyAddress + ": имён " + viaProxy + " из " + hosts.Count);
+            if (pending > 0) details.Add("Проверяю путь через VPN, имён: " + pending);
+            details.AddRange(separate);
         }
 
         private static void Resolve(string host, List<IPAddress> servers, IPAddress vpnAddress, int vpnIndex, IPAddress proxy,

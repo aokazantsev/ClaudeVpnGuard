@@ -6,7 +6,7 @@ namespace ClaudeVpnGuard
     internal static class AppIdentity
     {
         public const string Name = "ClaudeVpnGuard";
-        public const string Version = "2.1";
+        public const string Version = "2.2";
         public const string ExecutableName = "ClaudeVpnGuard.exe";
         public const string ProcessName = "ClaudeVpnGuard";
         public const string UninstallerName = "Uninstall.exe";
