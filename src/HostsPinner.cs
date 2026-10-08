@@ -54,6 +54,20 @@ namespace ClaudeVpnGuard
             return Rewrite(new List<string>());
         }
 
+        public static void RemovePins()
+        {
+            try
+            {
+                Remove();
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
         private static bool Rewrite(List<string> block)
         {
             byte[] original = File.Exists(HostsPath) ? File.ReadAllBytes(HostsPath) : new byte[0];

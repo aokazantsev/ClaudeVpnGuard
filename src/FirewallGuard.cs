@@ -146,6 +146,34 @@ namespace ClaudeVpnGuard
             }
         }
 
+        public static void RemoveAllRules()
+        {
+            try
+            {
+                AppLog.Trace("fw: removing all ClaudeVpnGuard rules");
+                dynamic policy = OpenPolicy();
+                dynamic rules = policy.Rules;
+                Dictionary<string, dynamic> ownRules = OwnRules(rules);
+                foreach (string name in ownRules.Keys)
+                {
+                    AppLog.Trace("fw: removing " + name);
+                    try
+                    {
+                        rules.Remove(name);
+                    }
+                    catch (COMException error)
+                    {
+                        AppLog.Trace("fw: failed to remove " + name + ": " + error.Message);
+                    }
+                }
+                AppLog.Trace("fw: all rules removed");
+            }
+            catch (Exception error)
+            {
+                AppLog.Trace("fw: failed to remove rules: " + error.Message);
+            }
+        }
+
         private static dynamic OpenPolicy()
         {
             return Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2", true));

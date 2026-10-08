@@ -12,6 +12,7 @@ namespace ClaudeVpnGuard
         private const string CriticalHostsKey = "criticalHosts";
         private const string ExtraExecutablesKey = "extraExecutables";
         private const string NotificationsKey = "notifications";
+        private const string ProtectionEnabledKey = "protectionEnabled";
         private const char KeyValueSeparator = '=';
         private const char ListSeparator = '|';
 
@@ -35,6 +36,7 @@ namespace ClaudeVpnGuard
         public List<string> CriticalHosts = new List<string> { "api.anthropic.com", "claude.ai" };
         public List<string> ExtraExecutables = new List<string>();
         public bool Notifications = true;
+        public bool ProtectionEnabled = true;
 
         public bool HasVpnAdapters
         {
@@ -82,6 +84,7 @@ namespace ClaudeVpnGuard
             AppendLine(content, CriticalHostsKey, Join(CriticalHosts));
             AppendLine(content, ExtraExecutablesKey, Join(ExtraExecutables));
             AppendLine(content, NotificationsKey, Notifications ? "1" : "0");
+            AppendLine(content, ProtectionEnabledKey, ProtectionEnabled ? "1" : "0");
             try
             {
                 Directory.CreateDirectory(AppIdentity.DataDirectory);
@@ -115,6 +118,7 @@ namespace ClaudeVpnGuard
             else if (Is(key, CriticalHostsKey)) CriticalHosts = ParseList(value);
             else if (Is(key, ExtraExecutablesKey)) ExtraExecutables = ParseList(value);
             else if (Is(key, NotificationsKey)) Notifications = value != "0";
+            else if (Is(key, ProtectionEnabledKey)) ProtectionEnabled = value != "0";
         }
 
         public static List<string> ParseList(string value)

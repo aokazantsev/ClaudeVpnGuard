@@ -6,8 +6,8 @@ namespace ClaudeVpnGuard
 {
     internal static class TrayMenu
     {
-        public static void Fill(ContextMenuStrip menu, GuardReport report, bool startupEnabled,
-            Action checkNow, Action showSettings, Action openLog, Action<bool> toggleStartup, Action exit)
+        public static void Fill(ContextMenuStrip menu, GuardReport report, bool startupEnabled, bool protectionEnabled,
+            Action checkNow, Action showSettings, Action openLog, Action<bool> toggleStartup, Action<bool> toggleProtection, Action exit)
         {
             menu.Items.Clear();
             if (report != null)
@@ -27,6 +27,10 @@ namespace ClaudeVpnGuard
             }
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Проверить сейчас", null, (s, a) => checkNow());
+            menu.Items.Add(new ToolStripSeparator());
+            var protection = new ToolStripMenuItem(protectionEnabled ? "Выключить защиту" : "Включить защиту") { };
+            protection.Click += (s, a) => toggleProtection(!protectionEnabled);
+            menu.Items.Add(protection);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Настройки…", null, (s, a) => showSettings());
             menu.Items.Add("Журнал", null, (s, a) => openLog());

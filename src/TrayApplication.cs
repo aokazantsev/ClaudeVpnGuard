@@ -175,14 +175,14 @@ namespace ClaudeVpnGuard
 
         private void OnMenuOpening(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            TrayMenu.Fill(trayIcon.ContextMenuStrip, report, Autostart.IsEnabled(),
+            TrayMenu.Fill(trayIcon.ContextMenuStrip, report, Autostart.IsEnabled(), settings.ProtectionEnabled,
                 () =>
                 {
                     engine.RetryFirewall();
                     forceFullSync = true;
                     Refresh();
                 },
-                ShowSettings, OpenLog, ToggleStartup, ConfirmExit);
+                ShowSettings, OpenLog, ToggleStartup, ToggleProtection, ConfirmExit);
             e.Cancel = false;
         }
 
@@ -216,6 +216,21 @@ namespace ClaudeVpnGuard
         {
             string problem = enable ? Autostart.Enable(Application.ExecutablePath) : Autostart.Disable();
             if (problem != null) MessageBox.Show(problem, AppIdentity.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private void ToggleProtection(bool enable)
+        {
+            settings.ProtectionEnabled = enable;
+            if (!settings.TrySave())
+            {
+                MessageBox.Show("Не удалось сохранить настройки в " + AppSettings.FilePath + ".", AppIdentity.Name, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                settings.ProtectionEnabled = !enable;
+                return;
+            }
+            engine.Reconfigure(settings);
+            AppLog.Append("protection " + (enable ? "enabled" : "disabled"));
+            forceFullSync = true;
+            Refresh();
         }
 
         private static void OpenLog()

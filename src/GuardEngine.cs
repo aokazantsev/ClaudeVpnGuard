@@ -76,7 +76,24 @@ namespace ClaudeVpnGuard
             DateTime now = DateTime.UtcNow;
             evaluations++;
             AppLog.TraceEnabled = evaluations <= TracedEvaluations;
-            Trace("evaluate #" + evaluations + ", force=" + forceFullSync);
+            Trace("evaluate #" + evaluations + ", force=" + forceFullSync + ", protection=" + settings.ProtectionEnabled);
+            if (!settings.ProtectionEnabled)
+            {
+                report.Status = GuardStatus.Offline;
+                report.Headline = "Защита отключена";
+                report.Details.Add("Нажмите кнопку включения, чтобы активировать защиту Claude через VPN");
+                if (!firstEvaluation && firewallSynced)
+                {
+                    Trace("protection disabled, removing firewall rules and hosts");
+                    ThreadPool.QueueUserWorkItem(state =>
+                    {
+                        FirewallGuard.RemoveAllRules();
+                        HostsPinner.RemovePins();
+                        post(() => { lastSignature = null; firewallSynced = false; changed(); });
+                    });
+                }
+                return report;
+            }
             if (!IsElevated())
             {
                 report.Status = GuardStatus.Broken;

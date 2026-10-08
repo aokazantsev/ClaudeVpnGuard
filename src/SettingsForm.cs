@@ -14,6 +14,7 @@ namespace ClaudeVpnGuard
         private readonly TextBox criticalHosts = new TextBox();
         private readonly TextBox extraExecutables = new TextBox();
         private readonly CheckBox notifications = new CheckBox();
+        private readonly CheckBox protection = new CheckBox();
         private readonly List<NetworkAdapter> adapterRows = new List<NetworkAdapter>();
 
         public SettingsForm(AppSettings settings, Action<AppSettings> save)
@@ -53,6 +54,11 @@ namespace ClaudeVpnGuard
             notifications.AutoSize = true;
             notifications.Checked = settings.Notifications;
             layout.Controls.Add(notifications);
+
+            protection.Text = "Включить защиту Claude (рекомендуется)";
+            protection.AutoSize = true;
+            protection.Checked = settings.ProtectionEnabled;
+            layout.Controls.Add(protection);
 
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true };
             var cancel = new Button { Text = "Отмена", AutoSize = true };
@@ -101,6 +107,7 @@ namespace ClaudeVpnGuard
             updated.CriticalHosts = AppSettings.ParseList(criticalHosts.Text);
             updated.ExtraExecutables = AppSettings.ParseList(extraExecutables.Text);
             updated.Notifications = notifications.Checked;
+            updated.ProtectionEnabled = protection.Checked;
             foreach (string critical in updated.CriticalHosts)
             {
                 if (!updated.PinnedHosts.Contains(critical)) updated.PinnedHosts.Add(critical);
