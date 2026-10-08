@@ -12,6 +12,7 @@ namespace ClaudeVpnGuard
         private const int ProtocolAny = 256;
         private const int ProfilesAll = 0x7FFFFFFF;
         private const int ModifyStateGroupPolicyOverride = 1;
+        private const int RemovePasses = 3;
 
         public static string RuleName(string executable)
         {
@@ -146,32 +147,32 @@ namespace ClaudeVpnGuard
             }
         }
 
-        public static void RemoveAllRules()
+        public static FirewallSyncResult RemoveAll()
         {
-            try
+            var result = new FirewallSyncResult();
+            for (int pass = 1; pass <= RemovePasses; pass++)
             {
-                AppLog.Trace("fw: removing all ClaudeVpnGuard rules");
-                dynamic policy = OpenPolicy();
-                dynamic rules = policy.Rules;
-                Dictionary<string, dynamic> ownRules = OwnRules(rules);
-                foreach (string name in ownRules.Keys)
+                dynamic rules = OpenPolicy().Rules;
+                Dictionary<string, dynamic> own = OwnRules(rules);
+                AppLog.Trace("fw: remove pass " + pass + ", own rules " + own.Count);
+                if (own.Count == 0) return result;
+                foreach (string name in own.Keys)
                 {
-                    AppLog.Trace("fw: removing " + name);
                     try
                     {
                         rules.Remove(name);
+                        result.Removed++;
                     }
                     catch (COMException error)
                     {
-                        AppLog.Trace("fw: failed to remove " + name + ": " + error.Message);
+                        result.Errors.Add("не удалось убрать правило «" + name + "»: " + error.Message);
+                        return result;
                     }
                 }
-                AppLog.Trace("fw: all rules removed");
             }
-            catch (Exception error)
-            {
-                AppLog.Trace("fw: failed to remove rules: " + error.Message);
-            }
+            int left = OwnRules(OpenPolicy().Rules).Count;
+            if (left > 0) result.Errors.Add("в группе " + AppIdentity.FirewallGroup + " осталось правил: " + left);
+            return result;
         }
 
         private static dynamic OpenPolicy()

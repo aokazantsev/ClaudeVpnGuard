@@ -5,12 +5,14 @@ namespace ClaudeVpnGuard
     internal sealed class FirewallRequest
     {
         private const string VerifyKey = "verify";
+        private const string RemoveAllKey = "removeAll";
         private const string TraceKey = "trace";
         private const string ExecutableKey = "exe";
         private const string InterfaceKey = "interface";
         private const string AppliedInterfaceKey = "appliedInterface";
 
         public bool VerifyOnly;
+        public bool RemoveAll;
         public bool Trace;
         public readonly List<string> Executables = new List<string>();
         public readonly List<string> Interfaces = new List<string>();
@@ -20,6 +22,7 @@ namespace ClaudeVpnGuard
         {
             var file = new KeyValueFile();
             file.Add(VerifyKey, VerifyOnly);
+            file.Add(RemoveAllKey, RemoveAll);
             file.Add(TraceKey, Trace);
             file.AddAll(ExecutableKey, Executables);
             file.AddAll(InterfaceKey, Interfaces);
@@ -33,6 +36,7 @@ namespace ClaudeVpnGuard
             var request = new FirewallRequest
             {
                 VerifyOnly = file.Flag(VerifyKey),
+                RemoveAll = file.Flag(RemoveAllKey),
                 Trace = file.Flag(TraceKey)
             };
             request.Executables.AddRange(file.All(ExecutableKey));

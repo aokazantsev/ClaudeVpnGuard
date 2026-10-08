@@ -10,6 +10,7 @@ namespace ClaudeVpnGuard
         private const string VpnAdaptersKey = "vpnAdapters";
         private const string PinnedHostsKey = "pinnedHosts";
         private const string CriticalHostsKey = "criticalHosts";
+        private const string ProxiedHostsKey = "proxiedHosts";
         private const string ExtraExecutablesKey = "extraExecutables";
         private const string NotificationsKey = "notifications";
         private const string ProtectionEnabledKey = "protectionEnabled";
@@ -34,6 +35,7 @@ namespace ClaudeVpnGuard
             "downloads.claude.ai"
         };
         public List<string> CriticalHosts = new List<string> { "api.anthropic.com", "claude.ai" };
+        public List<string> ProxiedHosts = new List<string> { "challenges.cloudflare.com" };
         public List<string> ExtraExecutables = new List<string>();
         public bool Notifications = true;
         public bool ProtectionEnabled = true;
@@ -82,6 +84,7 @@ namespace ClaudeVpnGuard
             AppendLine(content, VpnAdaptersKey, Join(VpnAdapters));
             AppendLine(content, PinnedHostsKey, Join(PinnedHosts));
             AppendLine(content, CriticalHostsKey, Join(CriticalHosts));
+            AppendLine(content, ProxiedHostsKey, Join(ProxiedHosts));
             AppendLine(content, ExtraExecutablesKey, Join(ExtraExecutables));
             AppendLine(content, NotificationsKey, Notifications ? "1" : "0");
             AppendLine(content, ProtectionEnabledKey, ProtectionEnabled ? "1" : "0");
@@ -116,6 +119,7 @@ namespace ClaudeVpnGuard
             if (Is(key, VpnAdaptersKey)) VpnAdapters = ParseList(value);
             else if (Is(key, PinnedHostsKey)) PinnedHosts = ParseList(value);
             else if (Is(key, CriticalHostsKey)) CriticalHosts = ParseList(value);
+            else if (Is(key, ProxiedHostsKey)) ProxiedHosts = ParseList(value);
             else if (Is(key, ExtraExecutablesKey)) ExtraExecutables = ParseList(value);
             else if (Is(key, NotificationsKey)) Notifications = value != "0";
             else if (Is(key, ProtectionEnabledKey)) ProtectionEnabled = value != "0";

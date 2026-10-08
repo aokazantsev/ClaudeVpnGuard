@@ -33,7 +33,7 @@ namespace ClaudeVpnGuard
                 + ", clr=" + Environment.Version + ", exe=" + Application.ExecutablePath);
             settings = AppSettings.Load();
             AppLog.Append("settings: file=" + AppSettings.FileExists + ", vpn=" + string.Join("|", settings.VpnAdapters)
-                + ", extra=" + settings.ExtraExecutables.Count);
+                + ", extra=" + settings.ExtraExecutables.Count + ", protection=" + settings.ProtectionEnabled);
             invoker.CreateControl();
             engine = new GuardEngine(settings, Post, RefreshSoon);
             AppLog.Append("engine created");
@@ -207,7 +207,7 @@ namespace ClaudeVpnGuard
             }
             settings = updated;
             engine.Reconfigure(updated);
-            AppLog.Append("settings saved: vpn=" + string.Join("|", updated.VpnAdapters));
+            AppLog.Append("settings saved: vpn=" + string.Join("|", updated.VpnAdapters) + ", protection=" + updated.ProtectionEnabled);
             forceFullSync = true;
             Refresh();
         }
@@ -220,6 +220,16 @@ namespace ClaudeVpnGuard
 
         private void ToggleProtection(bool enable)
         {
+            if (!enable)
+            {
+                DialogResult answer = MessageBox.Show(
+                    "Правила брандмауэра и блок в hosts будут сняты: Claude пойдёт в сеть напрямую, как без " + AppIdentity.Name + ", в том числе мимо VPN."
+                    + Environment.NewLine + Environment.NewLine
+                    + "Защита останется выключенной, пока ты не включишь её снова, — в том числе после перезапуска программы и Windows."
+                    + Environment.NewLine + Environment.NewLine + "Выключить защиту?",
+                    AppIdentity.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+                if (answer != DialogResult.Yes) return;
+            }
             settings.ProtectionEnabled = enable;
             if (!settings.TrySave())
             {

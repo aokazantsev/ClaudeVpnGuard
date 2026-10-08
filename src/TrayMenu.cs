@@ -20,17 +20,17 @@ namespace ClaudeVpnGuard
                     if (problem != report.Headline) menu.Items.Add(new ToolStripMenuItem("• " + problem) { Enabled = false });
                 }
                 foreach (string detail in report.Details) menu.Items.Add(new ToolStripMenuItem(detail) { Enabled = false });
-                var programs = new ToolStripMenuItem("Программы под защитой (" + report.Executables.Count + ")");
-                foreach (string executable in report.Executables) programs.DropDownItems.Add(new ToolStripMenuItem(executable) { Enabled = false });
-                if (report.Executables.Count == 0) programs.DropDownItems.Add(new ToolStripMenuItem("Claude не найден") { Enabled = false });
-                menu.Items.Add(programs);
+                if (protectionEnabled)
+                {
+                    var programs = new ToolStripMenuItem("Программы под защитой (" + report.Executables.Count + ")");
+                    foreach (string executable in report.Executables) programs.DropDownItems.Add(new ToolStripMenuItem(executable) { Enabled = false });
+                    if (report.Executables.Count == 0) programs.DropDownItems.Add(new ToolStripMenuItem("Claude не найден") { Enabled = false });
+                    menu.Items.Add(programs);
+                }
             }
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Проверить сейчас", null, (s, a) => checkNow());
-            menu.Items.Add(new ToolStripSeparator());
-            var protection = new ToolStripMenuItem(protectionEnabled ? "Выключить защиту" : "Включить защиту") { };
-            protection.Click += (s, a) => toggleProtection(!protectionEnabled);
-            menu.Items.Add(protection);
+            menu.Items.Add(protectionEnabled ? "Выключить защиту…" : "Включить защиту", null, (s, a) => toggleProtection(!protectionEnabled));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Настройки…", null, (s, a) => showSettings());
             menu.Items.Add("Журнал", null, (s, a) => openLog());

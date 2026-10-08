@@ -1,0 +1,163 @@
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+
+namespace ClaudeVpnGuard
+{
+    internal sealed class ProxiedHosts
+    {
+        private const int DnsTimeoutMs = 2000;
+        private const string ThroughVpn = "через VPN";
+        private const string ThroughProxy = "через прокси VPN";
+        private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(10);
+        private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
+
+        private Dictionary<string, string> pins = NewMap();
+        private Dictionary<string, string> routes = NewMap();
+        private Dictionary<string, string> failures = NewMap();
+        private DateTime nextRefreshUtc = DateTime.MinValue;
+        private bool running;
+        private int generation;
+
+        public void Reset()
+        {
+            generation++;
+            pins = NewMap();
+            routes = NewMap();
+            failures = NewMap();
+            nextRefreshUtc = DateTime.MinValue;
+        }
+
+        public void Refresh(List<string> hosts, NetworkAdapter vpn, string proxyPin, DateTime now, Action<Action> post, Action changed)
+        {
+            if (hosts.Count == 0 || vpn == null || running || now < nextRefreshUtc) return;
+            if (vpn.DnsServers.Count == 0 || vpn.Ipv4Address == null) return;
+            IPAddress proxy;
+            if (proxyPin == null || proxyPin == HostsPinner.BlackholeAddress || !IPAddress.TryParse(proxyPin, out proxy)) proxy = null;
+            running = true;
+            int started = generation;
+            var targets = new List<string>(hosts);
+            var servers = new List<IPAddress>(vpn.DnsServers);
+            IPAddress vpnAddress = vpn.Ipv4Address;
+            int vpnIndex = vpn.Ipv4Index;
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                var found = NewMap();
+                var how = NewMap();
+                var problems = NewMap();
+                foreach (string host in targets)
+                {
+                    try
+                    {
+                        Resolve(host, servers, vpnAddress, vpnIndex, proxy, found, how, problems);
+                    }
+                    catch (Exception error)
+                    {
+                        AppLog.Append("proxied " + host + " failed: " + error);
+                        problems[host] = error.Message;
+                    }
+                }
+                post(() =>
+                {
+                    running = false;
+                    if (started != generation) return;
+                    LogChanges(targets, found, how, problems);
+                    pins = found;
+                    routes = how;
+                    failures = problems;
+                    nextRefreshUtc = DateTime.UtcNow + (problems.Count == 0 ? RefreshInterval : RetryInterval);
+                    changed();
+                });
+            });
+        }
+
+        public void AddTo(List<string> hosts, Dictionary<string, string> addresses)
+        {
+            foreach (KeyValuePair<string, string> pair in pins)
+            {
+                if (hosts.Exists(host => string.Equals(host, pair.Key, StringComparison.OrdinalIgnoreCase))) continue;
+                hosts.Add(pair.Key);
+                addresses[pair.Key] = pair.Value;
+            }
+        }
+
+        public void Describe(List<string> hosts, List<string> details)
+        {
+            foreach (string host in hosts)
+            {
+                string address;
+                string failure;
+                if (pins.TryGetValue(host, out address)) details.Add(host + " → " + address + " (" + routes[host] + ")");
+                else if (failures.TryGetValue(host, out failure)) details.Add(host + ": не идёт через VPN — " + failure);
+                else details.Add(host + ": проверяю путь через VPN…");
+            }
+        }
+
+        private static void Resolve(string host, List<IPAddress> servers, IPAddress vpnAddress, int vpnIndex, IPAddress proxy,
+            Dictionary<string, string> found, Dictionary<string, string> how, Dictionary<string, string> problems)
+        {
+            foreach (IPAddress server in servers)
+            {
+                List<IPAddress> answers;
+                try
+                {
+                    answers = DnsResolver.QueryA(server, host, DnsTimeoutMs);
+                }
+                catch (SocketException)
+                {
+                    continue;
+                }
+                if (answers.Count == 0) continue;
+                IPAddress routed = answers.Find(address => RouteInspector.BestInterfaceIndex(address) == vpnIndex);
+                if (routed != null)
+                {
+                    found[host] = routed.ToString();
+                    how[host] = ThroughVpn;
+                    return;
+                }
+                break;
+            }
+            if (proxy == null)
+            {
+                problems[host] = "адрес прокси VPN ещё не известен";
+                return;
+            }
+            string detail;
+            if (ProxyProbe.Serves(proxy, vpnAddress, vpnIndex, host, out detail))
+            {
+                found[host] = proxy.ToString();
+                how[host] = ThroughProxy;
+                return;
+            }
+            problems[host] = detail;
+        }
+
+        private void LogChanges(List<string> hosts, Dictionary<string, string> found, Dictionary<string, string> how, Dictionary<string, string> problems)
+        {
+            foreach (string host in hosts)
+            {
+                string before;
+                string after;
+                string problem;
+                string previousProblem;
+                pins.TryGetValue(host, out before);
+                found.TryGetValue(host, out after);
+                if (after != null)
+                {
+                    if (after != before) AppLog.Append("proxied " + host + " → " + after + " (" + how[host] + ")");
+                    continue;
+                }
+                if (!problems.TryGetValue(host, out problem)) continue;
+                bool repeated = before == null && failures.TryGetValue(host, out previousProblem) && previousProblem == problem;
+                if (!repeated) AppLog.Append("proxied " + host + " not pinned: " + problem);
+            }
+        }
+
+        private static Dictionary<string, string> NewMap()
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+}

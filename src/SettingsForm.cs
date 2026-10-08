@@ -12,14 +12,17 @@ namespace ClaudeVpnGuard
         private readonly CheckedListBox adapters = new CheckedListBox();
         private readonly TextBox pinnedHosts = new TextBox();
         private readonly TextBox criticalHosts = new TextBox();
+        private readonly TextBox proxiedHosts = new TextBox();
         private readonly TextBox extraExecutables = new TextBox();
         private readonly CheckBox notifications = new CheckBox();
         private readonly CheckBox protection = new CheckBox();
         private readonly List<NetworkAdapter> adapterRows = new List<NetworkAdapter>();
+        private readonly bool initialProtection;
 
         public SettingsForm(AppSettings settings, Action<AppSettings> save)
         {
             original = settings;
+            initialProtection = settings.ProtectionEnabled;
             this.save = save;
             Text = AppIdentity.Name + " — настройки";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -27,7 +30,7 @@ namespace ClaudeVpnGuard
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(620, 585);
+            ClientSize = new Size(620, 730);
             Font = SystemFonts.MessageBoxFont;
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1 };
@@ -47,6 +50,9 @@ namespace ClaudeVpnGuard
             AddLabel(layout, "Без каких из них Claude не работает (жёлтый значок, если недоступны):");
             AddMultiline(layout, criticalHosts, settings.CriticalHosts, 50);
 
+            AddLabel(layout, "Через прокси VPN — DNS VPN их не подменяет, закрепляются только при подключённом VPN:");
+            AddMultiline(layout, proxiedHosts, settings.ProxiedHosts, 50);
+
             AddLabel(layout, "Дополнительные программы под защитой — полные пути к exe:");
             AddMultiline(layout, extraExecutables, settings.ExtraExecutables, 60);
 
@@ -55,7 +61,7 @@ namespace ClaudeVpnGuard
             notifications.Checked = settings.Notifications;
             layout.Controls.Add(notifications);
 
-            protection.Text = "Включить защиту Claude (рекомендуется)";
+            protection.Text = "Защита включена — без неё Claude ходит в сеть напрямую, в том числе мимо VPN";
             protection.AutoSize = true;
             protection.Checked = settings.ProtectionEnabled;
             layout.Controls.Add(protection);
@@ -105,9 +111,10 @@ namespace ClaudeVpnGuard
             }
             updated.PinnedHosts = AppSettings.ParseList(pinnedHosts.Text);
             updated.CriticalHosts = AppSettings.ParseList(criticalHosts.Text);
+            updated.ProxiedHosts = AppSettings.ParseList(proxiedHosts.Text);
             updated.ExtraExecutables = AppSettings.ParseList(extraExecutables.Text);
             updated.Notifications = notifications.Checked;
-            updated.ProtectionEnabled = protection.Checked;
+            if (protection.Checked != initialProtection) updated.ProtectionEnabled = protection.Checked;
             foreach (string critical in updated.CriticalHosts)
             {
                 if (!updated.PinnedHosts.Contains(critical)) updated.PinnedHosts.Add(critical);

@@ -20,6 +20,7 @@ namespace ClaudeVpnGuard
         private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan ProbeRetryInterval = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan ConnectGrace = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan TeardownRetryInterval = TimeSpan.FromSeconds(30);
 
         private readonly Action<Action> post;
         private readonly Action changed;
@@ -46,6 +47,10 @@ namespace ClaudeVpnGuard
         private List<string> appliedInterfaces = new List<string>();
         private List<string> firewallProblems = new List<string>();
         private readonly List<string> firewallEvents = new List<string>();
+        private bool teardownDone;
+        private DateTime lastTeardownUtc = DateTime.MinValue;
+        private List<string> teardownProblems = new List<string>();
+        private readonly ProxiedHosts proxied = new ProxiedHosts();
 
         public GuardEngine(AppSettings settings, Action<Action> post, Action changed)
         {
@@ -59,6 +64,7 @@ namespace ClaudeVpnGuard
         {
             lastSignature = null;
             lastFullSyncUtc = DateTime.MinValue;
+            lastTeardownUtc = DateTime.MinValue;
         }
 
         public void Reconfigure(AppSettings newSettings)
@@ -68,6 +74,10 @@ namespace ClaudeVpnGuard
             nextDnsRefreshUtc = DateTime.MinValue;
             lastProbeUtc = DateTime.MinValue;
             probeOutcome = null;
+            teardownDone = false;
+            lastTeardownUtc = DateTime.MinValue;
+            teardownProblems = new List<string>();
+            proxied.Reset();
         }
 
         public GuardReport Evaluate(bool forceFullSync)
@@ -77,23 +87,6 @@ namespace ClaudeVpnGuard
             evaluations++;
             AppLog.TraceEnabled = evaluations <= TracedEvaluations;
             Trace("evaluate #" + evaluations + ", force=" + forceFullSync + ", protection=" + settings.ProtectionEnabled);
-            if (!settings.ProtectionEnabled)
-            {
-                report.Status = GuardStatus.Offline;
-                report.Headline = "Защита отключена";
-                report.Details.Add("Нажмите кнопку включения, чтобы активировать защиту Claude через VPN");
-                if (!firstEvaluation && firewallSynced)
-                {
-                    Trace("protection disabled, removing firewall rules and hosts");
-                    ThreadPool.QueueUserWorkItem(state =>
-                    {
-                        FirewallGuard.RemoveAllRules();
-                        HostsPinner.RemovePins();
-                        post(() => { lastSignature = null; firewallSynced = false; changed(); });
-                    });
-                }
-                return report;
-            }
             if (!IsElevated())
             {
                 report.Status = GuardStatus.Broken;
@@ -101,6 +94,7 @@ namespace ClaudeVpnGuard
                 report.Problems.Add(report.Headline);
                 return report;
             }
+            if (!settings.ProtectionEnabled) return EvaluateDisabled(report, now);
 
             AdapterSnapshot adapters = AdapterInventory.Read(settings);
             foreach (NetworkAdapter adapter in adapters.Adapters)
@@ -125,6 +119,7 @@ namespace ClaudeVpnGuard
             TrackVpn(report, vpn, now);
             RefreshPins(vpn, now);
             Trace("dns refresh: running=" + dnsRefreshRunning);
+            RefreshProxied(vpn, now);
             WritePins(report);
             Trace("hosts done");
             AuditConnections(report, running, adapters);
@@ -174,18 +169,98 @@ namespace ClaudeVpnGuard
             FirewallClient.RunAsync(request, (result, failure) => post(() => OnFirewallDone(request, signature, announceAdded, announceRepaired, result, failure)));
         }
 
+        private GuardReport EvaluateDisabled(GuardReport report, DateTime now)
+        {
+            firstEvaluation = false;
+            if (!teardownDone && !firewallRunning && now - lastTeardownUtc > TeardownRetryInterval) StartTeardown(now);
+            report.Problems.AddRange(teardownProblems);
+            if (report.Problems.Count > 0)
+            {
+                report.Status = GuardStatus.Broken;
+                report.Headline = "Защита выключена, но не снята: " + report.Problems[0];
+                return report;
+            }
+            report.Status = GuardStatus.Offline;
+            if (!teardownDone)
+            {
+                report.Headline = "Снимаю защиту…";
+                report.Settling = true;
+                return report;
+            }
+            report.Headline = "Защита выключена — Claude ходит в сеть напрямую";
+            return report;
+        }
+
+        private void StartTeardown(DateTime now)
+        {
+            firewallRunning = true;
+            lastTeardownUtc = now;
+            AppLog.Append("protection off: removing firewall rules and hosts block");
+            var request = new FirewallRequest { RemoveAll = true, Trace = AppLog.TraceEnabled };
+            FirewallClient.RunAsync(request, (result, failure) => post(() => OnTeardownDone(result, failure)));
+        }
+
+        private void OnTeardownDone(FirewallSyncResult result, string failure)
+        {
+            firewallRunning = false;
+            lastSignature = null;
+            firewallSynced = false;
+            appliedInterfaces = new List<string>();
+            if (settings.ProtectionEnabled)
+            {
+                changed();
+                return;
+            }
+            var problems = new List<string>();
+            if (failure != null)
+            {
+                problems.Add("брандмауэр Windows не снял правила (" + failure + ")");
+                ReportFirewallFailure(failure);
+            }
+            else
+            {
+                foreach (string error in result.Errors) problems.Add("брандмауэр: " + error);
+            }
+            string hostsProblem = RemoveHostsBlock();
+            if (hostsProblem != null) problems.Add(hostsProblem);
+            teardownProblems = problems;
+            teardownDone = problems.Count == 0;
+            if (teardownDone) AppLog.Append("protection off: rules removed " + result.Removed + ", hosts block cleared");
+            else AppLog.Append("protection off failed: " + string.Join("; ", problems));
+            changed();
+        }
+
+        private static string RemoveHostsBlock()
+        {
+            try
+            {
+                HostsPinner.Remove();
+                return null;
+            }
+            catch (IOException error)
+            {
+                return "файл hosts не записывается: " + error.Message;
+            }
+            catch (UnauthorizedAccessException error)
+            {
+                return "файл hosts не записывается: " + error.Message;
+            }
+        }
+
+        private void ReportFirewallFailure(string failure)
+        {
+            AppLog.Append("firewall worker failed: " + failure);
+            if (firewallFailureReported) return;
+            firewallFailureReported = true;
+            ThreadPool.QueueUserWorkItem(state => CrashReport.Upload("firewall", failure));
+        }
+
         private void OnFirewallDone(FirewallRequest request, string signature, bool announceAdded, bool announceRepaired, FirewallSyncResult result, string failure)
         {
             firewallRunning = false;
             if (failure != null)
             {
-                AppLog.Append("firewall worker failed: " + failure);
-                if (!firewallFailureReported)
-                {
-                    firewallFailureReported = true;
-                    string reportText = failure;
-                    ThreadPool.QueueUserWorkItem(state => CrashReport.Upload("firewall", reportText));
-                }
+                ReportFirewallFailure(failure);
                 firewallSynced = false;
                 firewallDrift = false;
                 lastSignature = signature;
@@ -223,11 +298,13 @@ namespace ClaudeVpnGuard
                 nextDnsRefreshUtc = DateTime.MinValue;
                 lastProbeUtc = DateTime.MinValue;
                 probeOutcome = null;
+                proxied.Reset();
                 if (!firstEvaluation) report.Events.Add("VPN подключён");
             }
             if (!vpnUp && wasVpnUp)
             {
                 probeOutcome = null;
+                proxied.Reset();
                 report.Events.Add("VPN отключён — у Claude нет сети");
             }
             wasVpnUp = vpnUp;
@@ -292,11 +369,32 @@ namespace ClaudeVpnGuard
             return resolved;
         }
 
+        private void RefreshProxied(NetworkAdapter vpn, DateTime now)
+        {
+            if (dnsRefreshRunning) return;
+            string proxyPin;
+            pins.TryGetValue(ClaudeProbe.Host, out proxyPin);
+            proxied.Refresh(ProxiedOnly(), vpn, proxyPin, now, post, changed);
+        }
+
+        private List<string> ProxiedOnly()
+        {
+            var hosts = new List<string>();
+            foreach (string host in settings.ProxiedHosts)
+            {
+                if (!settings.PinnedHosts.Exists(pinned => string.Equals(pinned, host, StringComparison.OrdinalIgnoreCase))) hosts.Add(host);
+            }
+            return hosts;
+        }
+
         private void WritePins(GuardReport report)
         {
+            var hosts = new List<string>(settings.PinnedHosts);
+            var addresses = new Dictionary<string, string>(pins, StringComparer.OrdinalIgnoreCase);
+            proxied.AddTo(hosts, addresses);
             try
             {
-                if (HostsPinner.Apply(settings.PinnedHosts, pins) && !firstEvaluation) report.Events.Add("Блок в hosts обновлён");
+                if (HostsPinner.Apply(hosts, addresses) && !firstEvaluation) report.Events.Add("Блок в hosts обновлён");
             }
             catch (IOException error)
             {
@@ -406,6 +504,7 @@ namespace ClaudeVpnGuard
                 report.Details.Add(host + " → " + address + (routed ? " (через VPN)" : " (мимо VPN)"));
                 if (!routed) warnings.Add(host + " идёт мимо VPN и заблокирован");
             }
+            proxied.Describe(ProxiedOnly(), report.Details);
             if (warnings.Count > 0 && now - vpnUpSinceUtc < ConnectGrace)
             {
                 report.Status = GuardStatus.Offline;

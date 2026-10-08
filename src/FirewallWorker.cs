@@ -14,12 +14,19 @@ namespace ClaudeVpnGuard
             if (args.Length != 3) return BadArguments;
             FirewallRequest request = FirewallRequest.Load(args[1]);
             AppLog.TraceEnabled = request.Trace;
-            AppLog.Trace("fw worker: " + (request.VerifyOnly ? "verify" : "sync") + ", executables " + request.Executables.Count);
+            AppLog.Trace("fw worker: " + Mode(request) + ", executables " + request.Executables.Count);
             FirewallSyncResult result;
             try
             {
-                result = request.VerifyOnly ? FirewallGuard.Verify(request) : FirewallGuard.Sync(request);
-                FirewallGuard.AddPolicyProblems(result);
+                if (request.RemoveAll)
+                {
+                    result = FirewallGuard.RemoveAll();
+                }
+                else
+                {
+                    result = request.VerifyOnly ? FirewallGuard.Verify(request) : FirewallGuard.Sync(request);
+                    FirewallGuard.AddPolicyProblems(result);
+                }
             }
             catch (COMException error)
             {
@@ -32,6 +39,12 @@ namespace ClaudeVpnGuard
             result.Save(args[2]);
             AppLog.Trace("fw worker: done");
             return Succeeded;
+        }
+
+        private static string Mode(FirewallRequest request)
+        {
+            if (request.RemoveAll) return "remove all";
+            return request.VerifyOnly ? "verify" : "sync";
         }
 
         private static FirewallSyncResult Unavailable(Exception error)
